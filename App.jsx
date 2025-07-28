@@ -1,19 +1,26 @@
-import { useState } from 'react'
-import Dashboard from './pages/Dashboard'
-import DeveloperShowcase from './pages/DeveloperShowcase'
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import Landing from './pages/Landing';
+import Projects from './pages/Projects';
+import ResultAnalysis from './pages/ResultAnalysis';
 
-function App() {
-  const [showDashboard, setShowDashboard] = useState(true)
-
+export default function App() {
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="flex justify-center mb-4 space-x-4">
-        <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={() => setShowDashboard(true)}>Dashboard</button>
-        <button className="px-4 py-2 bg-gray-600 text-white rounded" onClick={() => setShowDashboard(false)}>Developer</button>
-      </div>
-      {showDashboard ? <Dashboard /> : <DeveloperShowcase />}
-    </div>
-  )
-}
+    <Router>
+      <header className="bg-blue-800 text-white p-4">
+        <nav className="container mx-auto flex space-x-6">
+          <Link to="/" className="hover:underline">About Me</Link>
+          <Link to="/projects" className="hover:underline">Projects</Link>
+          <Link to="/result-analysis" className="hover:underline">Result Analysis</Link>
+        </nav>
+      </header>
 
-export default App
+      <main className="container mx-auto p-6">
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/result-analysis" element={<ResultAnalysis />} />
+        </Routes>
+      </main>
+    </Router>
+  );
+}
