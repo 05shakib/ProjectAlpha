@@ -1,15 +1,11 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Home from './pages/Home';
-import Projects from './pages/Projects';
-import ResultAnalysis from './pages/ResultAnalysis';
+import Header from './components/Header';
 
-export default function App() {
+function App() {
   return (
     <Router>
+      <Header />
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/analysis" element={<ResultAnalysis />} />
+        {/* Your page routes */}
       </Routes>
     </Router>
   );
