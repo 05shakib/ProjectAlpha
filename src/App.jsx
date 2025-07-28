@@ -1,12 +1,11 @@
-import Header from './components/Header';
+import React from 'react';
 
-function App() {
+export default function App() {
   return (
-    <Router>
-      <Header />
-      <Routes>
-        {/* Your page routes */}
-      </Routes>
-    </Router>
+    <div className="app-container">
+      {/* Your app content goes here */}
+      <h1>Welcome to ProjectAlpha</h1>
+      {/* Add your routing or main components here */}
+    </div>
   );
 }
