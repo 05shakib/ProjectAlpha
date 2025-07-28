@@ -1,10 +1,17 @@
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Landing from './pages/Landing';
+// Import other pages/components
 
-export default function App() {
+function App() {
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Welcome to ProjectAlpha</h1>
-      <p>Your React app is running!</p>
-    </div>
+    <Router>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        {/* Add other routes here */}
+      </Routes>
+    </Router>
   );
 }
+
+export default App;
