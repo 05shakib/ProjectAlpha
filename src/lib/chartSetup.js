@@ -1,4 +1,4 @@
-// src/lib/chartSetup.js (optional)
+// src/lib/chartSetup.js
 import {
   Chart as ChartJS,
   LineElement,
@@ -8,7 +8,7 @@ import {
   CategoryScale,
   Tooltip,
   Legend,
-  Title,
+  Title, // Added Title for consistent registration
 } from 'chart.js';
 
 ChartJS.register(

@@ -21,8 +21,8 @@ H:.
 ¦   ¦   vite.svg
 ¦   ¦   
 ¦   +---assets
-¦           index-BLe-xdFX.css
-¦           index-tc4liA2F.js
+¦           index-BlBBTQoI.css
+¦           index-ePmnbnVW.js
 ¦           
 +---node_modules
 ¦   ¦   .package-lock.json
@@ -5510,6 +5510,7 @@ H:.
     ¦       supabaseClient.js
     ¦       
     +---pages
+            CourseAnalytics.jsx
             Dashboard.jsx
             DeveloperShowcase.jsx
             Home.jsx
