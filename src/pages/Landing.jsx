@@ -1,76 +1,141 @@
-import React, { useEffect, useState, useRef } from 'react';
-
-const useScrollFadeIn = () => {
-  const [visible, setVisible] = useState(false);
-  const domRef = useRef();
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      });
-    });
-    observer.observe(domRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref: domRef, style: { opacity: visible ? 1 : 0, transform: visible ? 'none' : 'translateY(40px)', transition: 'all 0.8s ease-out' } };
-};
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
 const Landing = () => {
-  const fadeInAbout = useScrollFadeIn();
-  const fadeInProject = useScrollFadeIn();
-  const fadeInAnalysis = useScrollFadeIn();
+  const navigate = useNavigate();
 
   return (
-    <main className="min-h-screen bg-gradient-to-r from-indigo-900 via-blue-900 to-black text-white px-6 py-16 max-w-6xl mx-auto font-sans">
-      <header className="text-center mb-20">
-        <h1 className="text-5xl font-extrabold tracking-wide mb-4">
-          ProjectAlpha <span className="text-indigo-400">Dashboard</span>
+    <main className="min-h-screen bg-black text-white px-6 pt-24 pb-16 max-w-6xl mx-auto font-sans relative overflow-x-hidden">
+      <div
+        className="absolute inset-0 bg-gradient-to-tr from-indigo-800 via-blue-800 to-black opacity-20 animate-gradient-move pointer-events-none"
+        style={{ zIndex: -1 }}
+      />
+
+      {/* Hero */}
+      <motion.header
+        className="text-center mb-20"
+        initial={{ opacity: 0, y: -50 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 1.2 }}
+      >
+        <h1 className="text-5xl md:text-6xl font-extrabold mb-4 drop-shadow text-white">
+          <TypewriterText text="Welcome to ProjectAlpha" speed={100} />
         </h1>
-        <p className="max-w-xl mx-auto text-indigo-200 text-lg">
-          Interactive Result Analysis Platform combining React, Supabase & Vercel for seamless academic insights.
+        <p className="text-indigo-200 text-lg max-w-2xl mx-auto font-medium">
+          A dynamic GPA visualization platform powered by React, Supabase & Vercel.
         </p>
-      </header>
+      </motion.header>
 
-      <section {...fadeInAbout} className="mb-24 bg-gradient-to-tr from-indigo-800 to-indigo-700 rounded-xl p-8 shadow-lg hover:shadow-indigo-400 transition-shadow duration-700">
-        <h2 className="text-4xl font-semibold mb-4 border-b-2 border-indigo-300 inline-block pb-2">About Me</h2>
-        <p className="leading-relaxed text-indigo-200 max-w-3xl">
-          I’m Shakib, a BBA Marketing student passionate about blending technology and data analytics.
-          I focus on creating insightful digital solutions for education through web technologies and data visualization.
-        </p>
-      </section>
+      {/* About Me */}
+      <ScrollFade>
+        <Section
+          id="about"
+          title="About Me"
+          gradientFrom="indigo-800"
+          gradientTo="indigo-700"
+          border="indigo-300"
+          text="I’m Shakib, a BBA Marketing student with a passion for tech and analytics.
+          I build tools that merge education with intuitive, data-driven UI experiences."
+        />
+      </ScrollFade>
 
-      <section {...fadeInProject} className="mb-24 bg-gradient-to-tr from-blue-800 to-blue-700 rounded-xl p-8 shadow-lg hover:shadow-blue-400 transition-shadow duration-700">
-        <h2 className="text-4xl font-semibold mb-4 border-b-2 border-blue-300 inline-block pb-2">Project</h2>
-        <p className="leading-relaxed text-blue-200 max-w-3xl">
-          ProjectAlpha empowers academic institutions with powerful visualization of student performance trends.
-          Leveraging modern tools like React for UI and Supabase for backend, it provides real-time, interactive analytics.
-        </p>
-        <button className="mt-6 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-full font-semibold transition-colors duration-300 shadow-lg shadow-indigo-700/50">
-          Explore Project
-        </button>
-      </section>
+      {/* Project */}
+      <ScrollFade>
+        <Section
+          id="project"
+          title="Project"
+          gradientFrom="blue-800"
+          gradientTo="blue-700"
+          border="blue-300"
+          text="ProjectAlpha visualizes student academic performance trends in real-time, using Supabase for backend and React + Tailwind for clean, responsive design."
+          button={{ label: 'Explore Project', onClick: () => navigate('/projects'), color: 'indigo' }}
+        />
+      </ScrollFade>
 
-      <section {...fadeInAnalysis} className="mb-24 bg-gradient-to-tr from-green-800 to-green-700 rounded-xl p-8 shadow-lg hover:shadow-green-400 transition-shadow duration-700">
-        <h2 className="text-4xl font-semibold mb-4 border-b-2 border-green-300 inline-block pb-2">Result Analysis</h2>
-        <p className="leading-relaxed text-green-200 max-w-3xl">
-          Analyze results by student ID or course code with detailed GPA trends, rankings, and course-wise distributions.
-          Gain data-driven insights to improve academic strategies.
-        </p>
-        <button className="mt-6 px-6 py-3 bg-green-600 hover:bg-green-500 rounded-full font-semibold transition-colors duration-300 shadow-lg shadow-green-700/50">
-          Go to Analysis
-        </button>
-      </section>
+      {/* Result Analysis */}
+      <ScrollFade>
+        <Section
+          id="analysis"
+          title="Result Analysis"
+          gradientFrom="green-800"
+          gradientTo="green-700"
+          border="green-300"
+          text="Check performance by student ID or course code. Track GPA, rank, and grade distribution—all rendered instantly and interactively."
+          button={{ label: 'Go to Analysis', onClick: () => navigate('/result-analysis'), color: 'green' }}
+        />
+      </ScrollFade>
 
-      <footer className="text-center text-indigo-300 mt-20 mb-10 text-sm select-none">
-        © 2025 Shakib | ProjectAlpha &nbsp;&middot;&nbsp; Built with React, Supabase & Vercel
+      {/* Footer */}
+      <footer className="text-center text-slate-400 mt-32 mb-6 text-sm select-none">
+        © 2025 Shakib · ProjectAlpha — Built with React, Supabase & Vercel
       </footer>
+
+      {/* Gradient Animation */}
+      <style>{`
+        @keyframes gradient-move {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .animate-gradient-move {
+          background-size: 200% 200%;
+          animation: gradient-move 15s ease infinite;
+        }
+      `}</style>
     </main>
   );
 };
+
+// Typewriter effect
+const TypewriterText = ({ text = '', speed = 100 }) => {
+  const [displayedText, setDisplayedText] = useState('');
+
+  useEffect(() => {
+    if (!text) return;
+    let i = 0;
+    const interval = setInterval(() => {
+      setDisplayedText((prev) => prev + text[i]);
+      i++;
+      if (i >= text.length) clearInterval(interval);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text, speed]);
+
+  return <span>{displayedText}</span>;
+};
+
+// Section component
+const Section = ({ id, title, gradientFrom, gradientTo, border, text, button }) => (
+  <section
+    id={id}
+    className={`mb-20 rounded-xl bg-gradient-to-tr from-${gradientFrom} to-${gradientTo} p-10 shadow-xl hover:shadow-${gradientTo} transition-shadow duration-700`}
+  >
+    <h2 className={`text-4xl font-semibold mb-6 border-b-4 border-${border} inline-block pb-2`}>
+      {title}
+    </h2>
+    <p className="text-slate-100 text-lg max-w-3xl leading-relaxed">{text}</p>
+    {button && (
+      <button
+        onClick={button.onClick}
+        className={`mt-8 px-8 py-4 bg-${button.color}-600 hover:bg-${button.color}-500 rounded-full font-semibold transition duration-300 shadow-lg shadow-${button.color}-700/50 text-lg`}
+      >
+        {button.label}
+      </button>
+    )}
+  </section>
+);
+
+// Scroll-based fade animation
+const ScrollFade = ({ children }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 50 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.8 }}
+    viewport={{ once: true, amount: 0.2 }}
+  >
+    {children}
+  </motion.div>
+);
 
 export default Landing;

@@ -1,32 +1,48 @@
-import { Link, useLocation } from 'react-router-dom';
+// src/components/Header.jsx
+import React from 'react';
+import { NavLink } from 'react-router-dom';
 
 const Header = () => {
-  const { pathname } = useLocation();
-
-  const navItems = [
-    { label: 'About Me', to: '/' },
-    { label: 'Projects', to: '/projects' },
-    { label: 'Result Analysis', to: '/analysis' },
-  ];
-
   return (
-    <header className="bg-white shadow-md sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-        <div className="text-xl font-semibold text-blue-600 tracking-wide">ProjectAlpha</div>
-        <nav className="flex gap-6 text-sm sm:text-base font-medium">
-          {navItems.map(({ label, to }) => (
-            <Link
-              key={to}
-              to={to}
-              className={`hover:text-blue-600 transition-colors ${
-                pathname === to ? 'text-blue-600 font-semibold' : 'text-gray-700'
-              }`}
+    <header className="fixed top-0 left-0 right-0 bg-gradient-to-r from-indigo-900 via-blue-900 to-black text-white shadow-md z-50">
+      <nav className="max-w-6xl mx-auto flex justify-between items-center p-4">
+        <div className="text-2xl font-bold tracking-wide cursor-pointer">
+          <NavLink to="/" className="hover:text-indigo-400">ProjectAlpha</NavLink>
+        </div>
+        <ul className="flex space-x-8 text-lg">
+          <li>
+            <NavLink
+              to="/"
+              className={({ isActive }) =>
+                isActive ? 'text-indigo-400 font-semibold' : 'hover:text-indigo-300'
+              }
+              end
             >
-              {label}
-            </Link>
-          ))}
-        </nav>
-      </div>
+              About Me
+            </NavLink>
+          </li>
+          <li>
+            <NavLink
+              to="/projects"
+              className={({ isActive }) =>
+                isActive ? 'text-indigo-400 font-semibold' : 'hover:text-indigo-300'
+              }
+            >
+              Project
+            </NavLink>
+          </li>
+          <li>
+            <NavLink
+              to="/result-analysis"
+              className={({ isActive }) =>
+                isActive ? 'text-indigo-400 font-semibold' : 'hover:text-indigo-300'
+              }
+            >
+              Result Analysis
+            </NavLink>
+          </li>
+        </ul>
+      </nav>
     </header>
   );
 };
