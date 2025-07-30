@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient'; // Ensure this path is correct
 import ResultTrendChart from '../components/ResultTrendChart';
+import { Link } from 'react-router-dom'; // Import Link for navigation
 import {
   COURSE_CREDITS,
+  COURSES_PER_SEMESTER, // Ensure COURSES_PER_SEMESTER is imported
   fetchExistingTableNames,
   getSubjectCodesForAcademicSemester,
   getGradePoint
@@ -29,7 +31,7 @@ export default function ResultAnalysis() {
   const [requiredSemesterKeysGlobal, setRequiredSemesterKeysGlobal] = useState([]); // To store required semester keys globally
 
   // New state for expected improvement grades
-  const [expectedGrades, setExpectedGrades] = useState({}); // Corrected: This line is standard React useState usage
+  const [expectedGrades, setExpectedGrades] = useState({});
 
   // Helper function to calculate GPA for a set of grades
   const calculateGpa = useCallback((grades) => {
@@ -314,67 +316,112 @@ export default function ResultAnalysis() {
     }
 
     const finalProcessedSemesters = {};
-    const semesterLabels = [];
     const studentGpaHistory = [];
     const studentCgpaHistory = [];
     const studentYgpaHistory = [];
 
-    const chronologicalSemesterKeys = Object.keys(processedRawStudentRecords).sort((a, b) => {
+    // Determine the latest academic year and semester from metadata to ensure complete data
+    let maxAcademicYearFromMetadata = 0;
+    let maxAcademicSemesterFromMetadata = 0;
+    allExistingTablesMetadata.forEach(meta => {
+      if (meta.academic_year > maxAcademicYearFromMetadata) {
+        maxAcademicYearFromMetadata = meta.academic_year;
+        maxAcademicSemesterFromMetadata = meta.academic_semester;
+      } else if (meta.academic_year === maxAcademicYearFromMetadata && meta.academic_semester > maxAcademicSemesterFromMetadata) {
+        maxAcademicSemesterFromMetadata = meta.academic_semester;
+      }
+    });
+
+    // Force max academic year to 4 and semester to 2 for demonstration of future semesters
+    const maxAcademicYearToDisplay = Math.max(4, maxAcademicYearFromMetadata);
+    const maxAcademicSemesterToDisplay = maxAcademicYearToDisplay === maxAcademicYearFromMetadata ? Math.max(2, maxAcademicSemesterFromMetadata) : 2;
+
+
+    // Generate all required semester keys up to the latest one, sorted
+    const allPossibleSemesterKeys = [];
+    for (let y = 1; y <= maxAcademicYearToDisplay; y++) {
+      for (let s = 1; s <= 2; s++) {
+        if (y < maxAcademicYearToDisplay || (y === maxAcademicYearToDisplay && s <= maxAcademicSemesterToDisplay)) {
+          allPossibleSemesterKeys.push(`${y}-${s}`);
+        }
+      }
+    }
+    allPossibleSemesterKeys.sort((a, b) => {
       const [yearA, semA] = a.split('-').map(Number);
       const [yearB, semB] = b.split('-').map(Number);
       if (yearA !== yearB) return yearA - yearB;
       return semA - semB;
     });
 
+
     let currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 };
     let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
     let lastProcessedYear = null;
 
-    for (const semesterKey of chronologicalSemesterKeys) {
+    // Process all possible semesters, adding non-existent ones
+    for (const semesterKey of allPossibleSemesterKeys) {
       const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
       const semesterDisplayName = `${academicYear} Year ${academicSemesterNum === 1 ? '1st' : '2nd'} Semester`;
-      semesterLabels.push(semesterDisplayName);
 
-      const gradesMap = processedRawStudentRecords[semesterKey].grades;
-      const originalGradesMap = processedRawStudentRecords[semesterKey].originalGrades;
-      const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemesterNum); // Use all expected subject codes
+      let semesterGpa = 0.000;
+      let currentSemesterTotalPoints = 0;
+      let currentSemesterTotalCredits = 0;
+      let courseDetails = [];
 
-      let semesterTotalPoints = 0;
-      let semesterTotalCredits = 0;
-      const courseDetails = [];
+      if (processedRawStudentRecords[semesterKey]) {
+        // Semester data exists, calculate from fetched grades
+        const gradesMap = processedRawStudentRecords[semesterKey].grades;
+        const originalGradesMap = processedRawStudentRecords[semesterKey].originalGrades;
+        const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemesterNum);
 
-      subjectCodes.forEach(code => {
-        const gradeLetter = gradesMap[code]; // This is the final, potentially improved grade
-        const originalGradeLetter = originalGradesMap[code] || gradeLetter; // Fallback to current if no explicit original
-        const gradePoint = getGradePoint(gradeLetter);
-        const credit = COURSE_CREDITS;
+        subjectCodes.forEach(code => {
+          const gradeLetter = gradesMap[code]; // This is the final, potentially improved grade
+          const originalGradeLetter = originalGradesMap[code] || gradeLetter; // Fallback to current if no explicit original
+          const gradePoint = getGradePoint(gradeLetter);
+          const credit = COURSE_CREDITS;
 
-        semesterTotalPoints += gradePoint * credit;
-        semesterTotalCredits += credit;
+          currentSemesterTotalPoints += gradePoint * credit;
+          currentSemesterTotalCredits += credit;
 
-        courseDetails.push({
-          courseCode: code,
-          gradeLetter, // This is the final, potentially improved grade
-          gradePoint,
-          originalGradeLetter: originalGradeLetter, // This is the original regular grade
-          hasImprovementOpportunity: getGradePoint(originalGradeLetter) < getGradePoint('B-') || originalGradeLetter === 'F',
-          // Flag to indicate if an official improvement was applied from DB data
-          improvementApplied: (originalGradesMap[code] !== undefined && gradesMap[code] !== originalGradesMap[code])
+          courseDetails.push({
+            courseCode: code,
+            gradeLetter,
+            gradePoint,
+            originalGradeLetter: originalGradeLetter,
+            hasImprovementOpportunity: getGradePoint(originalGradeLetter) < getGradePoint('B-') || originalGradeLetter === 'F',
+            improvementApplied: (originalGradesMap[code] !== undefined && gradesMap[code] !== originalGradesMap[code])
+          });
         });
-      });
+        semesterGpa = currentSemesterTotalCredits > 0 ? parseFloat((currentSemesterTotalPoints / currentSemesterTotalCredits).toFixed(3)) : 0.000;
 
-      const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(3)) : 0.000;
+      } else {
+        // Semester data does NOT exist, create dummy entries for input
+        const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemesterNum);
+        courseDetails = subjectCodes.map(code => ({
+          courseCode: code,
+          gradeLetter: '', // Empty for input
+          gradePoint: 0.000,
+          originalGradeLetter: 'N/A', // Indicate no original grade
+          hasImprovementOpportunity: true, // Always allow input for non-existent semesters
+          improvementApplied: false
+        }));
+        semesterGpa = 0.000; // Default GPA for non-existent semester
+        currentSemesterTotalPoints = 0;
+        currentSemesterTotalCredits = COURSE_CREDITS * COURSES_PER_SEMESTER; // Assume full credits for calculation, but points are 0
+      }
 
-      currentCgpaAccumulator.totalPoints += semesterTotalPoints;
-      currentCgpaAccumulator.totalCredits += semesterTotalCredits;
+      // Accumulate for CGPA (even for non-existent semesters, they contribute to total credits for the overall CGPA calculation)
+      currentCgpaAccumulator.totalPoints += currentSemesterTotalPoints;
+      currentCgpaAccumulator.totalCredits += currentSemesterTotalCredits;
       const currentCgpa = calculateCgpaFromSemesters({ current: currentCgpaAccumulator });
 
+      // Accumulate for YGPA
       if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
         currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
         lastProcessedYear = academicYear;
       }
-      currentYearAccumulator.totalPoints += semesterTotalPoints;
-      currentYearAccumulator.totalCredits += semesterTotalCredits;
+      currentYearAccumulator.totalPoints += currentSemesterTotalPoints;
+      currentYearAccumulator.totalCredits += currentSemesterTotalCredits;
       const currentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
 
 
@@ -384,14 +431,15 @@ export default function ResultAnalysis() {
         cgpa: currentCgpa,
         ygpa: currentYgpa,
         courseDetails,
-        totalPoints: semesterTotalPoints,
-        totalCredits: semesterTotalCredits,
+        totalPoints: currentSemesterTotalPoints,
+        totalCredits: currentSemesterTotalCredits,
       };
 
       studentGpaHistory.push(semesterGpa);
       studentCgpaHistory.push(currentCgpa);
       studentYgpaHistory.push(currentYgpa);
     }
+
 
     const newStudentData = {
       id: studentId,
@@ -649,21 +697,37 @@ export default function ResultAnalysis() {
       const studentSemesterGpas = {};
       const studentSemesterCgpas = {};
 
+      let studentTotalFGrades = 0;
+      let studentTotalImprovementsApplied = 0;
+      let studentSumOfAllGradePoints = 0;
+      const gpasForStdDev = []; // Array to collect GPAs for standard deviation calculation
+
       for (const semesterKey of chronologicalSemesterKeysForStudent) {
         const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
         const gradesMap = processedSemestersForThisStudent[semesterKey].grades;
+        const originalGradesMap = processedSemestersForThisStudent[semesterKey].originalGrades; // Needed for consistency metrics
         let semesterTotalPoints = 0;
         let semesterTotalCredits = 0;
 
-        Object.values(gradesMap).forEach(gradeLetter => {
+        Object.entries(gradesMap).forEach(([code, gradeLetter]) => {
           const gradePoint = getGradePoint(gradeLetter);
           const credit = COURSE_CREDITS;
           semesterTotalPoints += gradePoint * credit;
           semesterTotalCredits += credit;
+
+          // Calculate consistency metrics
+          if (gradeLetter === 'F') {
+            studentTotalFGrades++;
+          }
+          if (originalGradesMap[code] !== undefined && gradeLetter !== originalGradesMap[code]) {
+            studentTotalImprovementsApplied++;
+          }
+          studentSumOfAllGradePoints += gradePoint;
         });
 
         const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(3)) : 0.000;
         studentSemesterGpas[semesterKey] = semesterGpa;
+        gpasForStdDev.push(semesterGpa); // Collect GPA for standard deviation
 
         processedSemestersForThisStudent[semesterKey].totalPoints = semesterTotalPoints;
         processedSemestersForThisStudent[semesterKey].totalCredits = semesterTotalCredits;
@@ -686,6 +750,16 @@ export default function ResultAnalysis() {
 
       }
 
+      // Calculate Standard Deviation of GPAs
+      let gpaStandardDeviation = 0;
+      if (gpasForStdDev.length > 1) { // Standard deviation requires at least 2 data points
+        const meanGpa = gpasForStdDev.reduce((sum, gpa) => sum + gpa, 0) / gpasForStdDev.length;
+        const sumOfSquaredDifferences = gpasForStdDev.reduce((sum, gpa) => sum + Math.pow(gpa - meanGpa, 2), 0);
+        gpaStandardDeviation = parseFloat(Math.sqrt(sumOfSquaredDifferences / (gpasForStdDev.length - 1)).toFixed(3));
+      } else if (gpasForStdDev.length === 1) {
+        gpaStandardDeviation = 0.000; // Standard deviation is 0 for a single data point
+      }
+
       // Calculate overall CGPA for the student
       const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000;
 
@@ -700,6 +774,10 @@ export default function ResultAnalysis() {
         isComplete: hasAllRequiredSemesters,
         gpaHistory: studentSemesterGpas, // Semester-wise GPA
         cgpaHistory: studentSemesterCgpas, // Semester-wise CGPA
+        totalFGrades: studentTotalFGrades, // Add consistency metrics
+        totalImprovementsApplied: studentTotalImprovementsApplied,
+        sumOfAllGradePoints: studentSumOfAllGradePoints,
+        gpaStandardDeviation: gpaStandardDeviation, // Add standard deviation
       };
     }
 
@@ -744,7 +822,9 @@ export default function ResultAnalysis() {
             let gradePointToUse = getGradePoint(course.gradeLetter);
 
             // If an expected grade is provided and it's a valid grade, and it's an improvement over the *current* grade
-            if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== undefined && getGradePoint(expectedGradeLetter) > gradePointToUse) {
+            // OR if it's a non-existent semester course (originalGradeLetter is 'N/A')
+            if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== undefined && 
+               (getGradePoint(expectedGradeLetter) > gradePointToUse || course.originalGradeLetter === 'N/A')) {
                 gradeToUse = expectedGradeLetter;
                 gradePointToUse = getGradePoint(expectedGradeLetter);
             }
@@ -855,6 +935,10 @@ export default function ResultAnalysis() {
           studentId: studentRoll,
           name: student.name,
           cgpa: student.overallCgpa,
+          totalFGrades: student.totalFGrades, // Add consistency metrics
+          totalImprovementsApplied: student.totalImprovementsApplied,
+          sumOfAllGradePoints: student.sumOfAllGradePoints,
+          gpaStandardDeviation: student.gpaStandardDeviation, // Add standard deviation
         });
 
         // Populate semester-wise GPA/CGPA lists for averages
@@ -869,18 +953,42 @@ export default function ResultAnalysis() {
       }
     }
 
-    // Sort complete students by CGPA for ranking
-    completeStudentsCgpas.sort((a, b) => b.cgpa - a.cgpa);
+    // Sort complete students by CGPA for ranking, with consistency tie-breakers
+    completeStudentsCgpas.sort((a, b) => {
+      if (b.cgpa !== a.cgpa) return b.cgpa - a.cgpa; // Primary sort by CGPA (desc)
+      if (a.totalFGrades !== b.totalFGrades) return a.totalFGrades - b.totalFGrades; // Fewer F grades (asc)
+      if (a.totalImprovementsApplied !== b.totalImprovementsApplied) return a.totalImprovementsApplied - b.totalImprovementsApplied; // Fewer improvements (asc)
+      // New tie-breaker: Lower GPA Standard Deviation (asc)
+      if (a.gpaStandardDeviation !== b.gpaStandardDeviation) return a.gpaStandardDeviation - b.gpaStandardDeviation;
+      if (b.sumOfAllGradePoints !== a.sumOfAllGradePoints) return b.sumOfAllGradePoints - a.sumOfAllGradePoints; // Higher total grade points (desc)
+      return a.studentId.localeCompare(b.studentId); // Final tie-breaker by student ID (asc)
+    });
 
     // Assign ranks, handling ties
     let currentRank = 1;
     let prevCgpa = -1;
+    let prevFGrades = -1;
+    let prevImprovements = -1;
+    let prevStdDev = -1; // New variable for previous standard deviation
+    let prevSumGradePoints = -1;
+
     for (let i = 0; i < completeStudentsCgpas.length; i++) {
-      if (completeStudentsCgpas[i].cgpa < prevCgpa) {
+      const s = completeStudentsCgpas[i];
+      // If CGPA or any consistency metric is different, increment rank
+      if (s.cgpa < prevCgpa ||
+          (s.cgpa === prevCgpa && s.totalFGrades > prevFGrades) ||
+          (s.cgpa === prevCgpa && s.totalFGrades === prevFGrades && s.totalImprovementsApplied > prevImprovements) ||
+          (s.cgpa === prevCgpa && s.totalFGrades === prevFGrades && s.totalImprovementsApplied === prevImprovements && s.gpaStandardDeviation > prevStdDev) || // New condition
+          (s.cgpa === prevCgpa && s.totalFGrades === prevFGrades && s.totalImprovementsApplied === prevImprovements && s.gpaStandardDeviation === prevStdDev && s.sumOfAllGradePoints < prevSumGradePoints)
+      ) {
         currentRank = i + 1;
       }
-      completeStudentsCgpas[i].rank = currentRank;
-      prevCgpa = completeStudentsCgpas[i].cgpa;
+      s.rank = currentRank;
+      prevCgpa = s.cgpa;
+      prevFGrades = s.totalFGrades;
+      prevImprovements = s.totalImprovementsApplied;
+      prevStdDev = s.gpaStandardDeviation; // Update prevStdDev
+      prevSumGradePoints = s.sumOfAllGradePoints;
     }
 
     // Calculate rank for the current student
@@ -890,14 +998,43 @@ export default function ResultAnalysis() {
     if (currentStudentRankData) {
       let rankStart = currentStudentRankData.rank;
       let rankEnd = rankStart;
+      let isMostConsistentInTie = true; // Assume true until proven otherwise
+
+      const tiedStudents = completeStudentsCgpas.filter(s => s.cgpa === currentStudentRankData.cgpa);
+      if (tiedStudents.length > 1) {
+          // Check if the current student is the first one in the sorted tied group
+          const firstInTiedGroup = tiedStudents[0];
+          // Re-evaluate isMostConsistentInTie based on the full sorting criteria
+          if (firstInTiedGroup.studentId !== currentStudentRankData.studentId ||
+              firstInTiedGroup.totalFGrades !== currentStudentRankData.totalFGrades ||
+              firstInTiedGroup.totalImprovementsApplied !== currentStudentRankData.totalImprovementsApplied ||
+              firstInTiedGroup.gpaStandardDeviation !== currentStudentRankData.gpaStandardDeviation || // Check std dev
+              firstInTiedGroup.sumOfAllGradePoints !== currentStudentRankData.sumOfAllGradePoints
+          ) {
+              isMostConsistentInTie = false;
+          }
+      }
+
+      // Find the actual end of the tied rank range
       for (let i = completeStudentsCgpas.indexOf(currentStudentRankData); i < completeStudentsCgpas.length; i++) {
-          if (completeStudentsCgpas[i].cgpa === currentStudentRankData.cgpa) {
-              rankEnd = completeStudentsCgpas[i].rank;
+          const s = completeStudentsCgpas[i];
+          // Check if this student is still part of the *same* tied rank group based on all criteria
+          if (s.cgpa === currentStudentRankData.cgpa &&
+              s.totalFGrades === currentStudentRankData.totalFGrades &&
+              s.totalImprovementsApplied === currentStudentRankData.totalImprovementsApplied &&
+              s.gpaStandardDeviation === currentStudentRankData.gpaStandardDeviation && // Check std dev
+              s.sumOfAllGradePoints === currentStudentRankData.sumOfAllGradePoints
+          ) {
+              rankEnd = s.rank;
           } else {
               break;
           }
       }
+      
       let rankDisplayString = (rankStart === rankEnd) ? `${rankStart} of ${totalCompleteStudents}` : `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
+      if (rankStart !== rankEnd && isMostConsistentInTie) {
+        rankDisplayString += ` (Most consistent among tied students)`;
+      }
       setOverallStudentRank(rankDisplayString);
     } else {
       setOverallStudentRank('N/A (Missing Semesters)');
@@ -913,7 +1050,8 @@ export default function ResultAnalysis() {
       id: s.studentId,
       name: s.name,
       cgpa: parseFloat(s.cgpa).toFixed(3), // Format here
-      rank: s.rank
+      rank: s.rank,
+      gpaStandardDeviation: parseFloat(s.gpaStandardDeviation).toFixed(3), // Format Std Dev
     })));
 
     // Nearby students list
@@ -926,7 +1064,8 @@ export default function ResultAnalysis() {
         name: s.name,
         cgpa: parseFloat(s.cgpa).toFixed(3), // Format here
         rank: s.rank,
-        studentId: s.studentId // Ensure studentId is also passed for keying
+        studentId: s.studentId, // Ensure studentId is also passed for keying
+        gpaStandardDeviation: parseFloat(s.gpaStandardDeviation).toFixed(3), // Format Std Dev
       })));
     } else {
       setNearbyStudents([]);
@@ -989,7 +1128,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Top Avg. GPA',
+          label: 'Average of Top 5 GPAs', // Updated label
           data: topAvgGpaHistory,
           borderColor: 'rgba(40, 167, 69, 1)',
           backgroundColor: 'rgba(40, 167, 69, 0.2)',
@@ -997,7 +1136,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Bottom Avg. GPA',
+          label: 'Average of Bottom 5 GPAs', // Updated label
           data: bottomAvgGpaHistory,
           borderColor: 'rgba(255, 99, 132, 1)',
           backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -1005,7 +1144,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Batch Avg. GPA', // For general batch average
+          label: 'Batch Avg. GPA',
           data: avgGpaHistory,
           borderColor: 'rgba(255, 193, 7, 1)',
           backgroundColor: 'rgba(255, 193, 7, 0.2)',
@@ -1028,7 +1167,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Top Avg. CGPA',
+          label: 'Average of Top 5 CGPAs', // Updated label
           data: topAvgCgpaHistory,
           borderColor: 'rgba(40, 167, 69, 1)',
           backgroundColor: 'rgba(40, 167, 69, 0.2)',
@@ -1036,7 +1175,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Bottom Avg. CGPA',
+          label: 'Average of Bottom 5 CGPAs', // Updated label
           data: bottomAvgCgpaHistory,
           borderColor: 'rgba(255, 99, 132, 1)',
           backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -1044,7 +1183,7 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
         {
-          label: 'Batch Avg. CGPA', // For general batch average
+          label: 'Batch Avg. CGPA',
           data: avgCgpaHistory,
           borderColor: 'rgba(255, 193, 7, 1)',
           backgroundColor: 'rgba(255, 193, 7, 0.2)',
@@ -1268,6 +1407,7 @@ export default function ResultAnalysis() {
                     <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
                     <th className="py-3 px-4 border-b border-gray-600">Name</th>
                     <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
+                    <th className="py-3 px-4 border-b border-gray-600">Std. Dev.</th> {/* New column header */}
                   </tr>
                 </thead>
                 <tbody>
@@ -1277,6 +1417,7 @@ export default function ResultAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation}</td> {/* New data cell */}
                     </tr>
                   ))}
                 </tbody>
@@ -1297,6 +1438,7 @@ export default function ResultAnalysis() {
                       <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
                       <th className="py-3 px-4 border-b border-gray-600">Name</th>
                       <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
+                      <th className="py-3 px-4 border-b border-gray-600">Std. Dev.</th> {/* New column header */}
                     </tr>
                   </thead>
                   <tbody>
@@ -1306,6 +1448,7 @@ export default function ResultAnalysis() {
                         <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation}</td> {/* New data cell */}
                       </tr>
                     ))}
                   </tbody>
@@ -1352,7 +1495,7 @@ export default function ResultAnalysis() {
                                   <tr>
                                     <th className="py-2 px-3 border-b border-gray-600">Course Code</th>
                                     <th className="py-2 px-3 border-b border-gray-600">Regular Grade</th>
-                                    <th className="py-2 px-3 border-b border-gray-600">Expected or Improvement Grade</th>
+                                    <th className="py-2 px-3 border-b border-gray-600">Expected or Target Grade</th> {/* Updated header */}
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1360,13 +1503,17 @@ export default function ResultAnalysis() {
                                     <tr key={idx} className="hover:bg-gray-600">
                                       <td className="py-2 px-3 border-b border-gray-600">{course.courseCode}</td>
                                       <td className="py-2 px-3 border-b border-gray-600">
-                                        <span className="font-bold">{course.originalGradeLetter} ({getGradePoint(course.originalGradeLetter).toFixed(3)})</span>
+                                        {course.originalGradeLetter !== 'N/A' ? ( // Check if it's an actual fetched grade
+                                          <span className="font-bold">{course.originalGradeLetter} ({getGradePoint(course.originalGradeLetter).toFixed(3)})</span>
+                                        ) : (
+                                          <span className="text-gray-400">N/A</span> // For non-existent semesters
+                                        )}
                                       </td>
                                       <td className="py-2 px-3 border-b border-gray-600">
                                         {/* Display actual applied improvement grade or input for expected */}
                                         {course.improvementApplied ? (
                                           <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(3)})</span>
-                                        ) : (course.hasImprovementOpportunity || course.gradeLetter === 'F') ? (
+                                        ) : (course.hasImprovementOpportunity || course.originalGradeLetter === 'N/A') ? ( // Enable input for N/A original grades
                                           <div className="flex items-center">
                                             {course.gradeLetter === 'F' && (
                                               // Enhanced 'F!' warning
@@ -1377,7 +1524,7 @@ export default function ResultAnalysis() {
                                               className="p-1 w-24 border border-gray-600 rounded-md bg-gray-800 text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
                                               value={expectedGrades[`${semesterKey}-${course.courseCode}`] || ''}
                                               onChange={(e) => handleExpectedGradeChange(semesterKey, course.courseCode, e.target.value)}
-                                              placeholder={course.originalGradeLetter}
+                                              placeholder={course.originalGradeLetter === 'N/A' ? 'Target Grade' : course.originalGradeLetter} // Dynamic placeholder
                                               maxLength={2}
                                             />
                                           </div>
@@ -1409,6 +1556,16 @@ export default function ResultAnalysis() {
           </div>
         )
       )}
+
+      {/* Course Analytics Button at the very bottom */}
+      <div className="mt-12 text-center">
+        <Link
+          to="/course-analytics"
+          className="inline-block px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-lg rounded-full shadow-lg hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50 transition transform hover:scale-105"
+        >
+          Go to Course Analytics
+        </Link>
+      </div>
     </section>
   );
 }
