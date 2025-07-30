@@ -10,11 +10,15 @@ import {
   getGradePoint
 } from '../lib/dataUtils';
 
+// Log component render for debugging blank screen issues
+console.log('ResultAnalysis component rendering...');
+
 export default function ResultAnalysis() {
-  const [studentId, setStudentId] = useState(''); // Changed default to empty string
+  const [studentId, setStudentId] = useState('2112135101'); // Default student ID for auto-search
   const [studentData, setStudentData] = useState(null);
   const [overallStudentRank, setOverallStudentRank] = useState(null);
   const [topStudents, setTopStudents] = useState([]);
+  const [nearbyStudents, setNearbyStudents] = useState([]); // New state for students around the current one
   const [batchAverageCgpa, setBatchAverageCgpa] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -57,11 +61,13 @@ export default function ResultAnalysis() {
 
   // This is the core data fetching and processing logic for a single student
   const fetchAndProcessStudentData = useCallback(async () => {
-    setError(''); // Clear previous errors
+    // Clear all relevant states at the beginning of a new search
+    setError('');
     setLoading(true);
-    setStudentData(null); // Clear previous student data
+    setStudentData(null); // Explicitly set to null to ensure re-render of initial state if no data found
     setOverallStudentRank(null);
     setTopStudents([]);
+    setNearbyStudents([]); // Clear nearby students
     setBatchAverageCgpa(null);
 
     // Validate student ID length
@@ -510,11 +516,13 @@ export default function ResultAnalysis() {
 
       if (currentStudentRankData) {
         const rankStart = currentStudentRankData.rank;
-        let rankEnd = rankStart;
-        // Find the end of the current student's rank group by checking subsequent students with the same CGPA
-        for (let i = completeStudentsCgpas.indexOf(currentStudentRankData) + 1; i < completeStudentsCgpas.length; i++) {
+        let rankEnd = rankStart; // Initialize rankEnd with rankStart
+
+        // Find the actual last rank in the tied group
+        // Iterate from the current student's position to find the last student with the same CGPA
+        for (let i = completeStudentsCgpas.indexOf(currentStudentRankData); i < completeStudentsCgpas.length; i++) {
             if (completeStudentsCgpas[i].cgpa === currentStudentRankData.cgpa) {
-                rankEnd = completeStudentsCgpas[i].rank;
+                rankEnd = completeStudentsCgpas[i].rank; // This will be the rank of the last student in the tied group
             } else {
                 break; // Stop if CGPA changes
             }
@@ -524,6 +532,7 @@ export default function ResultAnalysis() {
         if (rankStart === rankEnd) {
           rankDisplayString = `${rankStart} of ${totalCompleteStudents}`;
         } else {
+          // Corrected to show full range (e.g., 100-108)
           rankDisplayString = `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
         }
         setOverallStudentRank(rankDisplayString);
@@ -554,18 +563,36 @@ export default function ResultAnalysis() {
       }));
       setTopStudents(top5); // Set new state for top students
 
+      // Get 10 students around the current student (5 before, 5 after)
+      const currentStudentIndex = completeStudentsCgpas.findIndex(s => s.studentId === studentId);
+      if (currentStudentIndex !== -1) {
+        const startIndex = Math.max(0, currentStudentIndex - 5);
+        const endIndex = Math.min(completeStudentsCgpas.length, currentStudentIndex + 5 + 1); // +1 because slice end is exclusive
+        setNearbyStudents(completeStudentsCgpas.slice(startIndex, endIndex));
+      } else {
+        setNearbyStudents([]); // Clear if current student not found in complete list
+      }
+
+
     } catch (err) {
       console.error("Error calculating overall ranks:", err);
       setOverallStudentRank('Error'); // Indicate error for rank
       setTopStudents([]); // Clear top students on error
+      setNearbyStudents([]); // Clear nearby students on error
       setBatchAverageCgpa('Error');
     }
     console.log("Overall rank calculation finished.");
   }, [studentId, calculateGpa, calculateCgpaFromSemesters]);
 
 
-  // Removed the useEffect that called fetchAndProcessStudentData on component mount
-  // The search will now only be triggered by the button click.
+  // Effect to trigger initial search on component mount with the default studentId
+  useEffect(() => {
+    // Only trigger if studentId is not empty (i.e., it's the default or a valid input)
+    // and no search has been performed yet (studentData is null)
+    if (studentId.trim().length === 10 && !studentData && !loading && !error) {
+      fetchAndProcessStudentData();
+    }
+  }, [studentId, studentData, loading, error, fetchAndProcessStudentData]); // Added dependencies
 
   // Trigger overall rank calculation after studentData is loaded
   useEffect(() => {
@@ -580,6 +607,8 @@ export default function ResultAnalysis() {
   };
 
   return (
+    // Removed the 'key' prop from the section to prevent re-mounting on every studentId change
+    // This should fix the input focus issue and potentially help with blank screens.
     <section className="container mx-auto p-4 pt-16 text-white">
       <h1 className="text-3xl font-bold mb-6 text-center">Student Result Analysis</h1>
 
@@ -607,9 +636,16 @@ export default function ResultAnalysis() {
         {loading && <p className="text-blue-400 mt-4 text-center">Loading student data...</p>}
       </div>
 
-      {/* Only render student data section if studentData is available and there's no critical error */}
-      {/* If studentData is null and there's no error, it means no search has been performed yet or the ID is incomplete */}
-      {studentData && !error ? (
+      {/* Conditional rendering based on loading, error, and studentData state */}
+      {loading ? (
+        <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-blue-400">
+          <p>Loading student data...</p>
+        </div>
+      ) : error ? (
+        <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-red-500">
+          <p>{error}</p>
+        </div>
+      ) : studentData ? (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md">
           <h2 className="text-2xl font-semibold mb-4 text-center">Results for Student ID: {studentData.id} ({studentData.name})</h2>
 
@@ -656,6 +692,35 @@ export default function ResultAnalysis() {
             <p className="text-gray-300 text-center mb-8">Top student data not available or loading...</p>
           )}
 
+          {/* New section for students before and after the current student */}
+          {nearbyStudents.length > 0 && (
+            <div className="mt-8">
+              <h3 className="text-xl font-semibold mb-4 text-center">Students Around Current Rank</h3>
+              <div className="overflow-x-auto mb-8">
+                <table className="min-w-full bg-gray-700 rounded-lg text-left text-white">
+                  <thead>
+                    <tr>
+                      <th className="py-3 px-4 border-b border-gray-600">Rank</th>
+                      <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
+                      <th className="py-3 px-4 border-b border-gray-600">Name</th>
+                      <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nearbyStudents.map((student, index) => (
+                      <tr key={student.id} className={`hover:bg-gray-600 ${student.id === studentId ? 'bg-blue-700 font-bold' : ''}`}>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <h3 className="text-xl font-semibold mb-4 text-center">GPA/CGPA/YGPA Trend</h3>
           {studentData.gpaTrend && (
             <ResultTrendChart
@@ -678,7 +743,8 @@ export default function ResultAnalysis() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(studentData.semesters).map(([semesterKey, sem]) => (
+                {/* Ensure studentData.semesters is an object before calling Object.entries */}
+                {studentData.semesters && Object.entries(studentData.semesters).map(([semesterKey, sem]) => (
                   <React.Fragment key={semesterKey}>
                     <tr
                       className="hover:bg-gray-600 cursor-pointer"
@@ -718,7 +784,6 @@ export default function ResultAnalysis() {
         </div>
       ) : (
         // This block will render if studentData is null (initial state or no results) and no error is present
-        // Or if there's an error, the error message will be displayed from the error state
         !loading && !error && (
           <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-gray-300">
             <p>Enter a Student ID and click "Show Student Data" to view results.</p>
