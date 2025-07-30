@@ -11,9 +11,11 @@ import {
 } from '../lib/dataUtils';
 
 export default function ResultAnalysis() {
-  const [studentId, setStudentId] = useState('2112135101'); // Default student ID for testing
+  const [studentId, setStudentId] = useState(''); // Changed default to empty string
   const [studentData, setStudentData] = useState(null);
   const [overallStudentRank, setOverallStudentRank] = useState(null);
+  const [topStudents, setTopStudents] = useState([]);
+  const [batchAverageCgpa, setBatchAverageCgpa] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedSemester, setExpandedSemester] = useState(null);
@@ -55,13 +57,16 @@ export default function ResultAnalysis() {
 
   // This is the core data fetching and processing logic for a single student
   const fetchAndProcessStudentData = useCallback(async () => {
-    setError('');
+    setError(''); // Clear previous errors
     setLoading(true);
-    setStudentData(null);
-    setOverallStudentRank(null); // Reset rank when fetching new student data
+    setStudentData(null); // Clear previous student data
+    setOverallStudentRank(null);
+    setTopStudents([]);
+    setBatchAverageCgpa(null);
 
-    if (!studentId.trim()) {
-      setError('Please enter a Student ID.');
+    // Validate student ID length
+    if (studentId.trim().length !== 10) {
+      setError('Please enter a valid 10-digit Student ID.');
       setLoading(false);
       return;
     }
@@ -92,7 +97,6 @@ export default function ResultAnalysis() {
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        // FIX: Dynamically select columns for the specific table
         promise: supabase.from(meta.table_name).select(selectColumnsForSingleStudent.join(',')).eq('"Roll no."', studentId)
       });
     });
@@ -315,11 +319,36 @@ export default function ResultAnalysis() {
     if (!supabase || typeof supabase.from !== 'function') {
       console.error('Supabase client is not properly initialized for rank calculation. Check supabaseClient.js and Vercel environment variables.');
       setOverallStudentRank('Error'); // Indicate error for rank
+      setBatchAverageCgpa('Error');
       return;
     }
 
     const allExistingTablesMetadata = await fetchExistingTableNames();
     const allStudentQueryPromises = [];
+
+    // Determine the latest academic year and semester from metadata
+    let maxAcademicYear = 0;
+    let maxAcademicSemester = 0;
+    allExistingTablesMetadata.forEach(meta => {
+      if (meta.academic_year > maxAcademicYear) {
+        maxAcademicYear = meta.academic_year;
+        maxAcademicSemester = meta.academic_semester;
+      } else if (meta.academic_year === maxAcademicYear && meta.academic_semester > maxAcademicSemester) {
+        maxAcademicSemester = meta.academic_semester;
+      }
+    });
+
+    // Generate all required semester keys up to the latest one
+    const requiredSemesterKeys = new Set();
+    for (let y = 1; y <= maxAcademicYear; y++) {
+      for (let s = 1; s <= 2; s++) { // Assuming only 2 semesters per year
+        if (y < maxAcademicYear || (y === maxAcademicYear && s <= maxAcademicSemester)) {
+          requiredSemesterKeys.add(`${y}-${s}`);
+        }
+      }
+    }
+    console.log("Required semester keys for completeness:", Array.from(requiredSemesterKeys));
+
 
     allExistingTablesMetadata.forEach(meta => {
       // Dynamically get subject codes for the specific academic year and semester of this table
@@ -333,7 +362,6 @@ export default function ResultAnalysis() {
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        // FIX: Dynamically select columns relevant to this table's semester
         promise: supabase.from(meta.table_name).select(selectColumnsForTable.join(','))
       });
     });
@@ -363,7 +391,7 @@ export default function ResultAnalysis() {
       console.log("Raw data collected for all students:", Object.keys(allStudentsRawData).length);
 
       // Now process each student's raw data to get their final grades and CGPA
-      const allStudentsCgpas = []; // [{ studentId: '...', name: '...', cgpa: X.XX }, ...]
+      const allStudentsCgpas = []; // [{ studentId: '...', name: '...', cgpa: X.XX, isComplete: boolean }, ...]
 
       for (const studentRoll in allStudentsRawData) {
         const student = allStudentsRawData[studentRoll];
@@ -438,26 +466,68 @@ export default function ResultAnalysis() {
           });
         }
         const studentCgpa = studentTotalCredits > 0 ? parseFloat((studentTotalPoints / studentTotalCredits).toFixed(2)) : 0.00;
-        allStudentsCgpas.push({ studentId: studentRoll, name: student.name, cgpa: studentCgpa });
+
+        // Determine if the student has records for all required semesters
+        const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
+        const hasAllRequiredSemesters = Array.from(requiredSemesterKeys).every(key => studentSemesterKeys.has(key));
+
+        allStudentsCgpas.push({
+          studentId: studentRoll,
+          name: student.name,
+          cgpa: studentCgpa,
+          isComplete: hasAllRequiredSemesters // Mark if student has all required semesters
+        });
       }
 
-      // Sort all students by CGPA to determine rank
-      allStudentsCgpas.sort((a, b) => b.cgpa - a.cgpa);
+      // Filter for complete students for ranking and batch average
+      const completeStudentsCgpas = allStudentsCgpas.filter(s => s.isComplete);
+      console.log("Complete students for ranking:", completeStudentsCgpas.length);
 
-      // Assign ranks, handling ties
-      let rank = 1;
-      for (let i = 0; i < allStudentsCgpas.length; i++) {
-        if (i > 0 && allStudentsCgpas[i].cgpa < allStudentsCgpas[i - 1].cgpa) {
-          rank = i + 1;
+      // Calculate Batch Average CGPA
+      const totalCgpaSum = completeStudentsCgpas.reduce((sum, s) => sum + s.cgpa, 0);
+      const averageCgpa = completeStudentsCgpas.length > 0 ? (totalCgpaSum / completeStudentsCgpas.length).toFixed(2) : 'N/A';
+      setBatchAverageCgpa(averageCgpa);
+
+
+      // Sort complete students by CGPA to determine rank
+      completeStudentsCgpas.sort((a, b) => b.cgpa - a.cgpa);
+
+      // Assign ranks, handling ties and preparing display string
+      let currentRank = 1;
+      let prevCgpa = -1; // Initialize with a value lower than any possible CGPA
+
+      for (let i = 0; i < completeStudentsCgpas.length; i++) {
+        if (completeStudentsCgpas[i].cgpa < prevCgpa) {
+          currentRank = i + 1;
         }
-        allStudentsCgpas[i].rank = rank;
+        completeStudentsCgpas[i].rank = currentRank;
+        prevCgpa = completeStudentsCgpas[i].cgpa;
       }
-      console.log("All students with CGPA and rank:", allStudentsCgpas);
 
-      // Find the rank of the currently displayed student
-      const currentStudentRankData = allStudentsCgpas.find(s => s.studentId === studentId);
+      // Calculate rank string for the current student
+      const totalCompleteStudents = completeStudentsCgpas.length;
+      const currentStudentRankData = completeStudentsCgpas.find(s => s.studentId === studentId);
+
       if (currentStudentRankData) {
-        setOverallStudentRank(currentStudentRankData.rank);
+        const rankStart = currentStudentRankData.rank;
+        let rankEnd = rankStart;
+        // Find the end of the current student's rank group by checking subsequent students with the same CGPA
+        for (let i = completeStudentsCgpas.indexOf(currentStudentRankData) + 1; i < completeStudentsCgpas.length; i++) {
+            if (completeStudentsCgpas[i].cgpa === currentStudentRankData.cgpa) {
+                rankEnd = completeStudentsCgpas[i].rank;
+            } else {
+                break; // Stop if CGPA changes
+            }
+        }
+
+        let rankDisplayString;
+        if (rankStart === rankEnd) {
+          rankDisplayString = `${rankStart} of ${totalCompleteStudents}`;
+        } else {
+          rankDisplayString = `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
+        }
+        setOverallStudentRank(rankDisplayString);
+
         // Also update the student's name if it was fetched here and is still the placeholder
         setStudentData(prevData => {
             if (prevData && prevData.name === `Student ${studentId}`) {
@@ -466,20 +536,36 @@ export default function ResultAnalysis() {
             return prevData;
         });
       } else {
-        setOverallStudentRank('N/A');
+        // If the current student is not in the complete list, they have missing semesters
+        setOverallStudentRank('N/A (Missing Semesters)');
+        // Ensure studentData's overallCgpa is set to N/A if semesters are missing
+        setStudentData(prevData => ({
+          ...prevData,
+          overallCgpa: 'N/A' // Set individual student's CGPA to N/A
+        }));
       }
+
+      // Get top 5 students from the complete list
+      const top5 = completeStudentsCgpas.slice(0, 5).map(s => ({
+        id: s.studentId,
+        name: s.name,
+        cgpa: s.cgpa,
+        rank: s.rank // Include rank for display if desired
+      }));
+      setTopStudents(top5); // Set new state for top students
 
     } catch (err) {
       console.error("Error calculating overall ranks:", err);
       setOverallStudentRank('Error'); // Indicate error for rank
+      setTopStudents([]); // Clear top students on error
+      setBatchAverageCgpa('Error');
     }
     console.log("Overall rank calculation finished.");
   }, [studentId, calculateGpa, calculateCgpaFromSemesters]);
 
 
-  useEffect(() => {
-    fetchAndProcessStudentData();
-  }, [fetchAndProcessStudentData]);
+  // Removed the useEffect that called fetchAndProcessStudentData on component mount
+  // The search will now only be triggered by the button click.
 
   // Trigger overall rank calculation after studentData is loaded
   useEffect(() => {
@@ -502,10 +588,11 @@ export default function ResultAnalysis() {
         <div className="flex items-center space-x-4">
           <input
             type="text"
-            placeholder="Enter Student ID (e.g., 2112135101)"
+            placeholder="Enter a 10-digit Student ID (e.g., 2112135101)" // Updated placeholder
             className="p-3 border border-gray-600 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow"
             value={studentId}
             onChange={(e) => setStudentId(e.target.value)}
+            maxLength={10} // Enforce max length
           />
           <button
             onClick={fetchAndProcessStudentData}
@@ -521,11 +608,12 @@ export default function ResultAnalysis() {
       </div>
 
       {/* Only render student data section if studentData is available and there's no critical error */}
-      {studentData && !error && (
+      {/* If studentData is null and there's no error, it means no search has been performed yet or the ID is incomplete */}
+      {studentData && !error ? (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md">
           <h2 className="text-2xl font-semibold mb-4 text-center">Results for Student ID: {studentData.id} ({studentData.name})</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall CGPA:</p>
               <p className="text-4xl font-bold text-green-400">{studentData.overallCgpa}</p>
@@ -534,7 +622,39 @@ export default function ResultAnalysis() {
               <p className="text-lg font-medium">Overall Rank:</p>
               <p className="text-4xl font-bold text-blue-400">{overallStudentRank || 'N/A'}</p>
             </div>
+            <div className="bg-gray-700 p-4 rounded-md text-center">
+              <p className="text-lg font-medium">Batch Avg. CGPA:</p>
+              <p className="text-4xl font-bold text-purple-400">{batchAverageCgpa || 'N/A'}</p>
+            </div>
           </div>
+
+          <h3 className="text-xl font-semibold mb-4 text-center mt-8">Top Students by CGPA</h3>
+          {topStudents.length > 0 ? (
+            <div className="overflow-x-auto mb-8">
+              <table className="min-w-full bg-gray-700 rounded-lg text-left text-white">
+                <thead>
+                  <tr>
+                    <th className="py-3 px-4 border-b border-gray-600">Rank</th>
+                    <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
+                    <th className="py-3 px-4 border-b border-gray-600">Name</th>
+                    <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topStudents.map((student, index) => (
+                    <tr key={student.id} className="hover:bg-gray-600">
+                      <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-300 text-center mb-8">Top student data not available or loading...</p>
+          )}
 
           <h3 className="text-xl font-semibold mb-4 text-center">GPA/CGPA/YGPA Trend</h3>
           {studentData.gpaTrend && (
@@ -596,6 +716,14 @@ export default function ResultAnalysis() {
             </table>
           </div>
         </div>
+      ) : (
+        // This block will render if studentData is null (initial state or no results) and no error is present
+        // Or if there's an error, the error message will be displayed from the error state
+        !loading && !error && (
+          <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-gray-300">
+            <p>Enter a Student ID and click "Show Student Data" to view results.</p>
+          </div>
+        )
       )}
     </section>
   );
