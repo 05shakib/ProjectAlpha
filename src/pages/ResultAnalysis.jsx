@@ -82,13 +82,18 @@ export default function ResultAnalysis() {
 
     // Filter tables relevant to the student ID and create promises
     allExistingTablesMetadata.forEach(meta => {
+      // Dynamically select columns based on academic year and semester for the individual student query
+      const subjectCodesForSemester = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
+      const selectColumnsForSingleStudent = ['*', '"Roll no."', 'Name', ...subjectCodesForSemester.map(code => `"${code}"`)];
+
       allQueryPromises.push({
         tableName: meta.table_name,
         academicYear: meta.academic_year,
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        promise: supabase.from(meta.table_name).select('*, "Roll no.", Name').eq('"Roll no."', studentId)
+        // FIX: Dynamically select columns for the specific table
+        promise: supabase.from(meta.table_name).select(selectColumnsForSingleStudent.join(',')).eq('"Roll no."', studentId)
       });
     });
 
@@ -316,24 +321,20 @@ export default function ResultAnalysis() {
     const allExistingTablesMetadata = await fetchExistingTableNames();
     const allStudentQueryPromises = [];
 
-    // Collect all unique subject codes across all semesters for dynamic selection
-    const allPossibleSubjectCodes = new Set();
-    for (let y = 1; y <= 4; y++) { // Assuming years 1-4
-      for (let s = 1; s <= 2; s++) { // Assuming semesters 1-2
-        getSubjectCodesForAcademicSemester(y, s).forEach(code => allPossibleSubjectCodes.add(code));
-      }
-    }
-    // Include "Roll no." and "Name" in the select columns for all student data
-    const selectColumns = ['"Roll no."', 'Name', ...Array.from(allPossibleSubjectCodes).map(code => `"${code}"`)];
-
     allExistingTablesMetadata.forEach(meta => {
+      // Dynamically get subject codes for the specific academic year and semester of this table
+      const subjectCodesForTable = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
+      // Include "Roll no." and "Name" in the select columns for all student data
+      const selectColumnsForTable = ['"Roll no."', 'Name', ...subjectCodesForTable.map(code => `"${code}"`)];
+
       allStudentQueryPromises.push({
         tableName: meta.table_name,
         academicYear: meta.academic_year,
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        promise: supabase.from(meta.table_name).select(selectColumns.join(','))
+        // FIX: Dynamically select columns relevant to this table's semester
+        promise: supabase.from(meta.table_name).select(selectColumnsForTable.join(','))
       });
     });
 
