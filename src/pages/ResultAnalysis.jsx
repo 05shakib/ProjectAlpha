@@ -103,14 +103,54 @@ export default function ResultAnalysis() {
     // 'Roll no.' will be used, both for select and eq
     const rollNoColumnName = 'Roll no.';
 
+    // --- Start: Logic to fetch student name from a single table ---
+    let studentNameFound = `Student ${studentId}`; // Default name
+    let latestRegularFirstSemesterTable = null;
+    let latestRegularFirstSemesterExamYear = -1;
+
+    // Find the latest 'R' type table for the 1st semester
+    allExistingTablesMetadata.forEach(meta => {
+      if (meta.result_type === 'R' && meta.academic_semester === 1) {
+        if (meta.exam_year > latestRegularFirstSemesterExamYear) {
+          latestRegularFirstSemesterExamYear = meta.exam_year;
+          latestRegularFirstSemesterTable = meta.table_name;
+        }
+      }
+    });
+
+    if (latestRegularFirstSemesterTable) {
+      try {
+        const { data, error } = await supabase.from(latestRegularFirstSemesterTable)
+          .select('Name')
+          .eq(`"${rollNoColumnName}"`, studentId)
+          .single(); // Use .single() as we expect one record
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows found"
+          console.warn(`Error fetching name from ${latestRegularFirstSemesterTable}:`, error.message);
+        }
+
+        if (data && data.Name) {
+          studentNameFound = data.Name;
+        }
+      } catch (err) {
+        console.warn(`Unexpected error fetching name from ${latestRegularFirstSemesterTable}:`, err);
+      }
+    }
+    // --- End: Logic to fetch student name from a single table ---
+
+
     allExistingTablesMetadata.forEach(meta => {
       const subjectCodesForSemester = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
       // Ensure subjectCodesForSemester only contains valid strings
       const filteredSubjectCodes = subjectCodesForSemester.filter(code => typeof code === 'string' && code.length > 0);
 
-      // Construct the select string as in the working version
-      // Include '*' to get all columns, then explicitly quote 'Roll no.' and subject codes
-      const selectColumns = ['*', `"${rollNoColumnName}"`, 'Name', ...filteredSubjectCodes.map(code => `"${code}"`)];
+      // Construct the select string
+      // Only include 'Name' if this is the specific table identified for name fetching
+      let selectColumns = [`"${rollNoColumnName}"`, ...filteredSubjectCodes.map(code => `"${code}"`)];
+      if (meta.table_name === latestRegularFirstSemesterTable) {
+          selectColumns.push('Name');
+      }
+      
       const formattedSelectString = selectColumns.join(',');
 
       allQueryPromises.push({
@@ -127,8 +167,7 @@ export default function ResultAnalysis() {
     });
 
     let results = [];
-    let studentNameFound = `Student ${studentId}`; // Default name
-
+    
     try {
       const responses = await Promise.allSettled(allQueryPromises.map(q => q.promise));
 
@@ -170,11 +209,7 @@ export default function ResultAnalysis() {
             type: meta.result_type,
             data: bestRecordForTable
           });
-          // Dynamically find the student's roll number from the returned record
-          const foundRoll = bestRecordForTable[rollNoColumnName]; // Only check for 'Roll no.'
-          if (foundRoll && foundRoll.toString() === studentId && studentNameFound === `Student ${studentId}`) {
-              studentNameFound = bestRecordForTable.Name || `Student ${foundRoll}`;
-          }
+          // The studentNameFound is already determined above, so no need to update it here
         } else {
           // console.warn(`No data found for student ${studentId} in table ${tableName} using "${rollNoColumnName}".`);
         }
@@ -413,9 +448,8 @@ export default function ResultAnalysis() {
       // Ensure subjectCodesForTable only contains valid strings
       const filteredSubjectCodesForTable = subjectCodesForTable.filter(code => typeof code === 'string' && code.length > 0);
 
-      // Construct the select string as in the working version for batch data
-      // Explicitly quote 'Roll no.' and subject codes
-      const selectColumnsForTable = [`"${rollNoColumnName}"`, 'Name', ...filteredSubjectCodesForTable.map(code => `"${code}"`)];
+      // Construct the select string for batch data: DO NOT include 'Name' here
+      const selectColumnsForTable = [`"${rollNoColumnName}"`, ...filteredSubjectCodesForTable.map(code => `"${code}"`)];
       const formattedSelectStringForTable = selectColumnsForTable.join(',');
 
       allStudentQueryPromises.push({
@@ -452,7 +486,7 @@ export default function ResultAnalysis() {
 
           if (!tempStudentData.has(studentRoll)) {
             tempStudentData.set(studentRoll, {
-              name: studentRecord.Name || `Student ${studentRoll}`,
+              name: studentRecord.Name || `Student ${studentRoll}`, // Default name if not available
               records: new Map()
             });
           }
@@ -1308,7 +1342,8 @@ export default function ResultAnalysis() {
                                         ) : (course.hasImprovementOpportunity || course.gradeLetter === 'F') ? (
                                           <div className="flex items-center">
                                             {course.gradeLetter === 'F' && (
-                                              <span className="text-red-500 mr-2 font-bold">F!</span>
+                                              // Enhanced 'F!' warning
+                                              <span className="bg-red-700 text-white px-3 py-1.5 rounded-md mr-2 font-bold text-xl shadow-lg">F!</span>
                                             )}
                                             <input
                                               type="text"
