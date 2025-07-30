@@ -315,6 +315,28 @@ export default function ResultAnalysis() {
       return;
     }
 
+    // Calculate the ACTUAL overall CGPA based ONLY on fetched records
+    let actualOverallTotalPoints = 0;
+    let actualOverallTotalCredits = 0;
+    const sortedActualSemesterKeys = Object.keys(processedRawStudentRecords).sort((a, b) => {
+      const [yearA, semA] = a.split('-').map(Number);
+      const [yearB, semB] = b.split('-').map(Number);
+      if (yearA !== yearB) return yearA - yearB;
+      return semA - b;
+    });
+
+    for (const semesterKey of sortedActualSemesterKeys) {
+        const gradesMap = processedRawStudentRecords[semesterKey].grades;
+        Object.values(gradesMap).forEach(gradeLetter => {
+            const gradePoint = getGradePoint(gradeLetter);
+            const credit = COURSE_CREDITS;
+            actualOverallTotalPoints += gradePoint * credit;
+            actualOverallTotalCredits += credit;
+        });
+    }
+    const actualOverallCgpa = actualOverallTotalCredits > 0 ? parseFloat((actualOverallTotalPoints / actualOverallTotalCredits).toFixed(3)) : 0.000;
+
+
     const finalProcessedSemesters = {};
     const studentGpaHistory = [];
     const studentCgpaHistory = [];
@@ -445,7 +467,7 @@ export default function ResultAnalysis() {
       id: studentId,
       name: studentNameFound, // Use the fetched student name
       semesters: finalProcessedSemesters,
-      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000,
+      overallCgpa: actualOverallCgpa, // Use the actual calculated CGPA here
       // Store initial GPA/CGPA history for charts
       gpaHistory: studentGpaHistory,
       cgpaHistory: studentCgpaHistory,
@@ -1359,7 +1381,8 @@ export default function ResultAnalysis() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall CGPA:</p>
-              <p className="text-4xl font-bold text-green-400">{simulatedStudentData.overallCgpa}</p>
+              {/* This now explicitly uses studentData.overallCgpa to keep it static */}
+              <p className="text-4xl font-bold text-green-400">{studentData?.overallCgpa || 'N/A'}</p>
             </div>
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall Rank:</p>
@@ -1558,10 +1581,10 @@ export default function ResultAnalysis() {
       )}
 
       {/* Course Analytics Button at the very bottom */}
-      <div className="mt-12 text-center">
+      <div className="mt-20 text-center"> {/* Increased top margin to mt-20 */}
         <Link
           to="/course-analytics"
-          className="inline-block px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-lg rounded-full shadow-lg hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50 transition transform hover:scale-105"
+          className="inline-block px-8 py-4 bg-gray-900 text-blue-400 font-bold text-2xl rounded-full shadow-lg border-4 border-blue-600 hover:bg-gray-700 hover:text-blue-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition transform hover:scale-105"
         >
           Go to Course Analytics
         </Link>
