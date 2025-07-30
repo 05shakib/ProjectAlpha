@@ -41,7 +41,7 @@ export default function ResultAnalysis() {
       totalPoints += gradePoint * credit;
       totalCredits += credit;
     });
-    return totalCredits > 0 ? parseFloat((totalPoints / totalCredits).toFixed(2)) : 0.00;
+    return totalCredits > 0 ? parseFloat((totalPoints / totalCredits).toFixed(3)) : 0.000;
   }, []);
 
   // Helper to calculate CGPA from processed semester data
@@ -52,7 +52,7 @@ export default function ResultAnalysis() {
       overallTotalPoints += sem.totalPoints;
       overallTotalCredits += sem.totalCredits;
     });
-    return overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+    return overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
   }, []);
 
   // Helper to calculate YGPA from processed year data
@@ -63,7 +63,7 @@ export default function ResultAnalysis() {
       overallTotalPoints += year.totalPoints;
       overallTotalCredits += year.totalCredits;
     });
-    return overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+    return overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
   }, []);
 
   // This is the core data fetching and processing logic for a single student
@@ -363,7 +363,7 @@ export default function ResultAnalysis() {
         });
       });
 
-      const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(2)) : 0.00;
+      const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(3)) : 0.000;
 
       currentCgpaAccumulator.totalPoints += semesterTotalPoints;
       currentCgpaAccumulator.totalCredits += semesterTotalCredits;
@@ -375,7 +375,7 @@ export default function ResultAnalysis() {
       }
       currentYearAccumulator.totalPoints += semesterTotalPoints;
       currentYearAccumulator.totalCredits += semesterTotalCredits;
-      const currentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
+      const currentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
 
 
       finalProcessedSemesters[semesterKey] = {
@@ -397,7 +397,7 @@ export default function ResultAnalysis() {
       id: studentId,
       name: studentNameFound, // Use the fetched student name
       semesters: finalProcessedSemesters,
-      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00,
+      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000,
       // Store initial GPA/CGPA history for charts
       gpaHistory: studentGpaHistory,
       cgpaHistory: studentCgpaHistory,
@@ -639,7 +639,7 @@ export default function ResultAnalysis() {
         const [yearA, semA] = a.split('-').map(Number);
         const [yearB, semB] = b.split('-').map(Number);
         if (yearA !== yearB) return yearA - yearB;
-        return semA - semB;
+        return semA - b;
       });
 
       currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 }; // Reset for each student
@@ -662,7 +662,7 @@ export default function ResultAnalysis() {
           semesterTotalCredits += credit;
         });
 
-        const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(2)) : 0.00;
+        const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(3)) : 0.000;
         studentSemesterGpas[semesterKey] = semesterGpa;
 
         processedSemestersForThisStudent[semesterKey].totalPoints = semesterTotalPoints;
@@ -671,7 +671,7 @@ export default function ResultAnalysis() {
 
         currentCgpaAccumulator.totalPoints += semesterTotalPoints;
         currentCgpaAccumulator.totalCredits += semesterTotalCredits;
-        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000;
         studentSemesterCgpas[semesterKey] = currentCgpa;
         processedSemestersForThisStudent[semesterKey].cgpa = currentCgpa;
 
@@ -682,12 +682,12 @@ export default function ResultAnalysis() {
         }
         currentYearAccumulator.totalPoints += semesterTotalPoints;
         currentYearAccumulator.totalCredits += semesterTotalCredits;
-        processedSemestersForThisStudent[semesterKey].ygpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
+        processedSemestersForThisStudent[semesterKey].ygpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
 
       }
 
       // Calculate overall CGPA for the student
-      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000;
 
       // Determine if the student has records for all required semesters
       const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
@@ -723,7 +723,7 @@ export default function ResultAnalysis() {
         const [yearA, semA] = a.split('-').map(Number);
         const [yearB, semB] = b.split('-').map(Number);
         if (yearA !== yearB) return yearA - yearB;
-        return semA - semB;
+        return semA - b;
     });
 
     for (const semesterKey of sortedSemesterKeys) {
@@ -759,12 +759,12 @@ export default function ResultAnalysis() {
             };
         });
 
-        const newSemesterGpa = semesterAdjustedTotalCredits > 0 ? parseFloat((semesterAdjustedTotalPoints / semesterAdjustedTotalCredits).toFixed(2)) : 0.00;
+        const newSemesterGpa = semesterAdjustedTotalCredits > 0 ? parseFloat((semesterAdjustedTotalPoints / semesterAdjustedTotalCredits).toFixed(3)) : 0.000;
 
         // Accumulate for CGPA
         overallTotalPoints += semesterAdjustedTotalPoints;
         overallTotalCredits += semesterAdjustedTotalCredits;
-        const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+        const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
 
         // Accumulate for YGPA
         if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
@@ -773,7 +773,7 @@ export default function ResultAnalysis() {
         }
         currentYearAccumulator.totalPoints += semesterAdjustedTotalPoints;
         currentYearAccumulator.totalCredits += semesterAdjustedTotalCredits;
-        const newCurrentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
+        const newCurrentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
 
 
         newSemesters[semesterKey] = {
@@ -787,7 +787,7 @@ export default function ResultAnalysis() {
         };
     }
 
-    const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+    const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
 
     return {
         ...baseStudentData, // Copy original student data properties
@@ -828,7 +828,7 @@ export default function ResultAnalysis() {
         const [yearA, semA] = a.split('-').map(Number);
         const [yearB, semB] = b.split('-').map(Number);
         if (yearA !== yearB) return yearA - yearB;
-        return semA - semB;
+        return semA - b;
     }).map(key => {
         // Defensive check for 'key' being a string before split
         if (typeof key !== 'string') {
@@ -905,14 +905,14 @@ export default function ResultAnalysis() {
 
     // Batch Average CGPA
     const totalCgpaSum = completeStudentsCgpas.reduce((sum, s) => sum + s.cgpa, 0);
-    const averageCgpa = completeStudentsCgpas.length > 0 ? (totalCgpaSum / completeStudentsCgpas.length).toFixed(2) : 'N/A';
+    const averageCgpa = completeStudentsCgpas.length > 0 ? (totalCgpaSum / completeStudentsCgpas.length).toFixed(3) : 'N/A';
     setBatchAverageCgpa(averageCgpa);
 
     // Top students list
     setTopStudents(completeStudentsCgpas.slice(0, 5).map(s => ({
       id: s.studentId,
       name: s.name,
-      cgpa: s.cgpa,
+      cgpa: parseFloat(s.cgpa).toFixed(3), // Format here
       rank: s.rank
     })));
 
@@ -921,7 +921,13 @@ export default function ResultAnalysis() {
     if (currentStudentIndex !== -1) {
       const startIndex = Math.max(0, currentStudentIndex - 5);
       const endIndex = Math.min(completeStudentsCgpas.length, currentStudentIndex + 5 + 1);
-      setNearbyStudents(completeStudentsCgpas.slice(startIndex, endIndex));
+      setNearbyStudents(completeStudentsCgpas.slice(startIndex, endIndex).map(s => ({
+        id: s.studentId,
+        name: s.name,
+        cgpa: parseFloat(s.cgpa).toFixed(3), // Format here
+        rank: s.rank,
+        studentId: s.studentId // Ensure studentId is also passed for keying
+      })));
     } else {
       setNearbyStudents([]);
     }
@@ -950,24 +956,24 @@ export default function ResultAnalysis() {
       // GPA Averages
       const gpasForSemester = semesterWiseGpas[semesterKey] || [];
       const sortedGpas = [...gpasForSemester].sort((a, b) => b - a);
-      const avgGpa = sortedGpas.length > 0 ? (gpasForSemester.reduce((sum, g) => sum + g, 0) / gpasForSemester.length).toFixed(2) : 0;
+      const avgGpa = sortedGpas.length > 0 ? (gpasForSemester.reduce((sum, g) => sum + g, 0) / gpasForSemester.length).toFixed(3) : 0;
       const topGpas = sortedGpas.slice(0, numTopBottomStudents);
       const bottomGpas = sortedGpas.slice(Math.max(0, sortedGpas.length - numTopBottomStudents));
 
       avgGpaHistory.push(parseFloat(avgGpa));
-      topAvgGpaHistory.push(topGpas.length > 0 ? parseFloat((topGpas.reduce((sum, g) => sum + g, 0) / topGpas.length).toFixed(2)) : 0);
-      bottomAvgGpaHistory.push(bottomGpas.length > 0 ? parseFloat((bottomGpas.reduce((sum, g) => sum + g, 0) / bottomGpas.length).toFixed(2)) : 0);
+      topAvgGpaHistory.push(topGpas.length > 0 ? parseFloat((topGpas.reduce((sum, g) => sum + g, 0) / topGpas.length).toFixed(3)) : 0);
+      bottomAvgGpaHistory.push(bottomGpas.length > 0 ? parseFloat((bottomGpas.reduce((sum, g) => sum + g, 0) / bottomGpas.length).toFixed(3)) : 0);
 
       // CGPA Averages
       const cgpasForSemester = semesterWiseCgpas[semesterKey] || [];
       const sortedCgpas = [...cgpasForSemester].sort((a, b) => b - a);
-      const avgCgpa = sortedCgpas.length > 0 ? (cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length).toFixed(2) : 0;
+      const avgCgpa = sortedCgpas.length > 0 ? (cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length).toFixed(3) : 0;
       const topCgpas = sortedCgpas.slice(0, numTopBottomStudents);
       const bottomCgpas = sortedCgpas.slice(Math.max(0, sortedCgpas.length - numTopBottomStudents));
 
       avgCgpaHistory.push(parseFloat(avgCgpa));
-      topAvgCgpaHistory.push(topCgpas.length > 0 ? parseFloat((topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length).toFixed(2)) : 0);
-      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? parseFloat((bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length).toFixed(2)) : 0);
+      topAvgCgpaHistory.push(topCgpas.length > 0 ? parseFloat((topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length).toFixed(3)) : 0);
+      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? parseFloat((bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length).toFixed(3)) : 0);
     });
 
     // Set GPA Chart Data (Your GPA data will be updated by the separate useEffect)
@@ -1107,7 +1113,7 @@ export default function ResultAnalysis() {
             const [yearA, semA] = a.split('-').map(Number);
             const [yearB, semB] = b.split('-').map(Number);
             if (yearA !== yearB) return yearA - yearB;
-            return semA - semB;
+            return semA - b;
         }).map(key => {
             const [year, sem] = key.split('-').map(Number);
             return `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
@@ -1328,9 +1334,9 @@ export default function ResultAnalysis() {
                       onClick={() => toggleSemesterExpansion(semesterKey)}
                     >
                       <td className="py-2 px-4 border-b border-gray-600">{sem.semesterDisplayName}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{sem.gpa}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{sem.ygpa}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{sem.gpa.toFixed(3)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{sem.ygpa.toFixed(3)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa.toFixed(3)}</td>
                       <td className="py-2 px-4 border-b border-gray-600">
                         {expandedSemester === semesterKey ? '▲ Hide' : '▼ Show'}
                       </td>
@@ -1354,12 +1360,12 @@ export default function ResultAnalysis() {
                                     <tr key={idx} className="hover:bg-gray-600">
                                       <td className="py-2 px-3 border-b border-gray-600">{course.courseCode}</td>
                                       <td className="py-2 px-3 border-b border-gray-600">
-                                        <span className="font-bold">{course.originalGradeLetter} ({getGradePoint(course.originalGradeLetter).toFixed(2)})</span>
+                                        <span className="font-bold">{course.originalGradeLetter} ({getGradePoint(course.originalGradeLetter).toFixed(3)})</span>
                                       </td>
                                       <td className="py-2 px-3 border-b border-gray-600">
                                         {/* Display actual applied improvement grade or input for expected */}
                                         {course.improvementApplied ? (
-                                          <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(2)})</span>
+                                          <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(3)})</span>
                                         ) : (course.hasImprovementOpportunity || course.gradeLetter === 'F') ? (
                                           <div className="flex items-center">
                                             {course.gradeLetter === 'F' && (
