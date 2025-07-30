@@ -8,12 +8,10 @@ import {
   getGradePoint
 } from '../lib/dataUtils';
 
-// Log component render for debugging blank screen issues
-console.log('ResultAnalysis component rendering...');
-
 export default function ResultAnalysis() {
   const [studentId, setStudentId] = useState('2112135101'); // Default student ID for auto-search
-  const [studentData, setStudentData] = useState(null);
+  const [studentData, setStudentData] = useState(null); // Stores actual fetched data
+  const [simulatedStudentData, setSimulatedStudentData] = useState(null); // Stores data with expected improvements
   const [overallStudentRank, setOverallStudentRank] = useState(null);
   const [topStudents, setTopStudents] = useState([]);
   const [nearbyStudents, setNearbyStudents] = useState([]);
@@ -28,11 +26,10 @@ export default function ResultAnalysis() {
 
   // New states for caching all batch data (fetched once)
   const [allProcessedBatchData, setAllProcessedBatchData] = useState(null);
-  // Removed allBatchCourseMetrics as it's no longer needed for display
   const [requiredSemesterKeysGlobal, setRequiredSemesterKeysGlobal] = useState([]); // To store required semester keys globally
 
   // New state for expected improvement grades
-  const [expectedGrades, setExpectedGrades] = useState({}); // { 'semesterKey-courseCode': 'ExpectedGradeLetter' }
+  const [expectedGrades, setExpectedGrades] = useState({}); // Corrected: This line is standard React useState usage
 
   // Helper function to calculate GPA for a set of grades
   const calculateGpa = useCallback((grades) => {
@@ -70,12 +67,12 @@ export default function ResultAnalysis() {
   }, []);
 
   // This is the core data fetching and processing logic for a single student
-  // This function is still responsible for fetching data for the *currently searched* student
   const fetchAndProcessStudentData = useCallback(async () => {
     // Clear all relevant states at the beginning of a new search
     setError('');
     setLoading(true);
     setStudentData(null); // Explicitly set to null to ensure re-render of initial state if no data found
+    setSimulatedStudentData(null); // Clear simulated data as well
     setOverallStudentRank(null);
     setTopStudents([]);
     setNearbyStudents([]);
@@ -101,53 +98,87 @@ export default function ResultAnalysis() {
 
     // Fetch all existing table names from the metadata table
     const allExistingTablesMetadata = await fetchExistingTableNames();
-    console.log("Fetched metadata tables for single student search:", allExistingTablesMetadata);
 
     const allQueryPromises = [];
+    // 'Roll no.' will be used, both for select and eq
+    const rollNoColumnName = 'Roll no.';
 
-    // Filter tables relevant to the student ID and create promises
     allExistingTablesMetadata.forEach(meta => {
-      // Dynamically select columns based on academic year and semester for the individual student query
       const subjectCodesForSemester = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
-      const selectColumnsForSingleStudent = ['*', '"Roll no."', 'Name', ...subjectCodesForSemester.map(code => `"${code}"`)];
+      // Ensure subjectCodesForSemester only contains valid strings
+      const filteredSubjectCodes = subjectCodesForSemester.filter(code => typeof code === 'string' && code.length > 0);
+
+      // Construct the select string as in the working version
+      // Include '*' to get all columns, then explicitly quote 'Roll no.' and subject codes
+      const selectColumns = ['*', `"${rollNoColumnName}"`, 'Name', ...filteredSubjectCodes.map(code => `"${code}"`)];
+      const formattedSelectString = selectColumns.join(',');
 
       allQueryPromises.push({
+        queryId: `${meta.table_name}-${rollNoColumnName}`,
         tableName: meta.table_name,
         academicYear: meta.academic_year,
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        promise: supabase.from(meta.table_name).select(selectColumnsForSingleStudent.join(',')).eq('"Roll no."', studentId)
+        rollColName: rollNoColumnName,
+        // Pass the explicitly formatted string to .select()
+        promise: supabase.from(meta.table_name).select(formattedSelectString).eq(`"${rollNoColumnName}"`, studentId)
       });
     });
 
-    console.log("All individual Supabase query promises for single student:", allQueryPromises.length);
-
     let results = [];
     let studentNameFound = `Student ${studentId}`; // Default name
+
     try {
       const responses = await Promise.allSettled(allQueryPromises.map(q => q.promise));
 
+      // Group results by table name to pick the best one (though now there's only one per table)
+      const groupedResponses = new Map();
+
       responses.forEach((response, index) => {
-        if (response.status === 'fulfilled' && response.value.data && response.value.data.length > 0) {
-          const recordData = response.value.data[0];
+        const originalQueryInfo = allQueryPromises[index];
+        if (!groupedResponses.has(originalQueryInfo.tableName)) {
+          const meta = allExistingTablesMetadata.find(m => m.table_name === originalQueryInfo.tableName);
+          groupedResponses.set(originalQueryInfo.tableName, { meta, results: [] });
+        }
+        groupedResponses.get(originalQueryInfo.tableName).results.push({
+          rollColName: originalQueryInfo.rollColName,
+          status: response.status,
+          value: response.status === 'fulfilled' ? response.value : null,
+          reason: response.status === 'rejected' ? response.reason : null,
+        });
+      });
+
+      // Process grouped responses to select the best result for each table
+      for (const [tableName, { meta, results: queryResults }] of groupedResponses.entries()) {
+        let bestRecordForTable = null;
+
+        // Since only 'Roll no.' is queried, just take the first successful result
+        for (const r of queryResults) {
+            if (r.status === 'fulfilled' && r.value.data && r.value.data.length > 0) {
+                bestRecordForTable = r.value.data[0];
+                break;
+            }
+        }
+
+        if (bestRecordForTable) {
           results.push({
-            tableName: allQueryPromises[index].tableName,
-            academicYear: allQueryPromises[index].academicYear,
-            academicSemester: allQueryPromises[index].academicSemester,
-            examYear: allQueryPromises[index].examYear,
-            type: allQueryPromises[index].type,
-            data: recordData
+            tableName: meta.table_name,
+            academicYear: meta.academic_year,
+            academicSemester: meta.academic_semester,
+            examYear: meta.exam_year,
+            type: meta.result_type,
+            data: bestRecordForTable
           });
-          // Capture student name from the first successful record
-          if (recordData.Name && studentNameFound === `Student ${studentId}`) {
-            studentNameFound = recordData.Name;
+          // Dynamically find the student's roll number from the returned record
+          const foundRoll = bestRecordForTable[rollNoColumnName]; // Only check for 'Roll no.'
+          if (foundRoll && foundRoll.toString() === studentId && studentNameFound === `Student ${studentId}`) {
+              studentNameFound = bestRecordForTable.Name || `Student ${foundRoll}`;
           }
         } else {
-          console.warn(`Query for ${allQueryPromises[index].tableName} failed or returned no data:`, response.reason || 'No data');
+          // console.warn(`No data found for student ${studentId} in table ${tableName} using "${rollNoColumnName}".`);
         }
-      });
-      console.log("Successful query results for student:", results);
+      }
 
     } catch (err) {
       console.error("Error fetching student data concurrently:", err);
@@ -159,69 +190,87 @@ export default function ResultAnalysis() {
     const processedRawStudentRecords = {};
     let foundAnyData = false;
 
-    results.forEach(record => {
+    // First pass: Process all Regular records to establish original grades
+    results.filter(record => record.type === 'R').forEach(record => {
       foundAnyData = true;
-      const { academicYear, academicSemester, examYear, type, data } = record;
+      const { academicYear, academicSemester, examYear, data } = record;
       const semesterKey = `${academicYear}-${academicSemester}`;
 
-      if (!processedRawStudentRecords[semesterKey]) {
+      if (!processedRawStudentRecords[semesterKey] || examYear > processedRawStudentRecords[semesterKey].examYear) {
         processedRawStudentRecords[semesterKey] = {
-          examYear: -1,
-          type: '',
-          grades: {}, // This will store the *best* grade found for each course
-          originalGrades: {}, // This will store the original 'R' grade for improvement check
-          gpa: 0.00, // Initialize
-          ygpa: 0.00 // Initialize
+          examYear: examYear,
+          type: 'R',
+          grades: {}, // Stores the final (regular or improved) grade
+          originalGrades: {}, // Stores the original regular grade for comparison
+          gpa: data.GPA,
+          ygpa: data.YGPA
         };
-      }
-
-      if (type === 'R') {
-        // For Regular records, keep only the latest exam year's data
-        if (examYear > processedRawStudentRecords[semesterKey].examYear) {
-          processedRawStudentRecords[semesterKey] = {
-            examYear: examYear,
-            type: 'R',
-            grades: {}, // Will be populated below
-            originalGrades: {}, // Will be populated below
-            gpa: data.GPA,
-            ygpa: data.YGPA
-          };
-          const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-          subjectCodes.forEach(code => {
-            if (data[code] !== undefined) {
-              processedRawStudentRecords[semesterKey].grades[code] = data[code];
-              processedRawStudentRecords[semesterKey].originalGrades[code] = data[code]; // Store original
-            }
-          });
-        }
-      } else if (type === 'I') {
-        // For Improvement records, apply on top of existing regular grades if they exist
-        const improvementRecord = data;
         const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-
         subjectCodes.forEach(code => {
-          const improvedGrade = improvementRecord[code];
-          if (improvedGrade !== undefined) {
-            const currentGrade = processedRawStudentRecords[semesterKey]?.grades[code];
-            const currentGradePoint = getGradePoint(currentGrade);
-            const improvedGradePoint = getGradePoint(improvedGrade);
-
-            // Apply improvement if it's better and eligible
-            const isEligibleForImprovement = currentGradePoint < getGradePoint('B-') || currentGrade === 'F';
-
-            if (isEligibleForImprovement && improvedGradePoint > currentGradePoint) {
-              processedRawStudentRecords[semesterKey].grades[code] = improvedGrade;
-            } else if (currentGrade === undefined && improvedGradePoint > 0) {
-               // If no regular grade existed for this course, just add the improvement grade
-               processedRawStudentRecords[semesterKey].grades[code] = improvedGrade;
-               processedRawStudentRecords[semesterKey].originalGrades[code] = improvedGrade; // Treat as original if no regular
-            }
+          if (data[code] !== undefined && data[code] !== null) {
+            processedRawStudentRecords[semesterKey].grades[code] = data[code];
+            processedRawStudentRecords[semesterKey].originalGrades[code] = data[code]; // Store original regular grade
           }
         });
       }
     });
 
-    console.log("Processed raw student records with original/best grades:", processedRawStudentRecords);
+    // Second pass: Process Improvement records, applying them on top of established regular grades
+    results.filter(record => record.type === 'I').forEach(record => {
+      foundAnyData = true;
+      const { academicYear, academicSemester, data } = record;
+      const semesterKey = `${academicYear}-${academicSemester}`;
+
+      const improvementRecord = data;
+      const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
+
+      // Ensure there's a base regular record for this semester before applying improvements
+      if (!processedRawStudentRecords[semesterKey]) {
+        // This case means an improvement record exists without a regular one.
+        // We'll treat the improvement grades as the 'original' if no regular exists.
+        processedRawStudentRecords[semesterKey] = {
+          examYear: -1, // No specific regular exam year
+          type: 'I', // Mark as primarily improvement-driven
+          grades: {},
+          originalGrades: {},
+          gpa: improvementRecord.GPA || 0.00, // Use GPA from improvement if available
+          ygpa: improvementRecord.YGPA || 0.00
+        };
+      }
+
+      subjectCodes.forEach(code => {
+        const improvedGrade = improvementRecord[code];
+        
+        // Ensure improvedGrade is a valid string and has a corresponding grade point
+        const isValidImprovedGrade = typeof improvedGrade === 'string' && getGradePoint(improvedGrade) !== undefined;
+
+        if (isValidImprovedGrade) {
+          const originalGrade = processedRawStudentRecords[semesterKey]?.originalGrades[code]; // Original regular grade
+          const currentAppliedGrade = processedRawStudentRecords[semesterKey]?.grades[code]; // Currently applied grade (might be regular or previous improvement)
+
+          const originalGradePoint = getGradePoint(originalGrade);
+          const currentAppliedGradePoint = getGradePoint(currentAppliedGrade);
+          const improvedGradePoint = getGradePoint(improvedGrade);
+
+          // Eligibility: original grade was below B- OR original grade was F
+          const isEligibleForImprovement = originalGradePoint < getGradePoint('B-') || originalGrade === 'F';
+
+          // Apply improvement only if it's valid and strictly better than the current *applied* grade
+          // AND the original grade was eligible for improvement
+          if (isEligibleForImprovement && improvedGradePoint > currentAppliedGradePoint) {
+            processedRawStudentRecords[semesterKey].grades[code] = improvedGrade;
+          } else if (currentAppliedGrade === undefined) {
+             // If no grade (regular or previous improvement) existed for this course, apply the improvement grade.
+             // This handles courses that might only appear in an improvement record.
+             processedRawStudentRecords[semesterKey].grades[code] = improvedGrade;
+             // If no original grade was set, this improvement becomes the de-facto original for eligibility checks
+             if (processedRawStudentRecords[semesterKey].originalGrades[code] === undefined) {
+                processedRawStudentRecords[semesterKey].originalGrades[code] = improvedGrade;
+             }
+          }
+        }
+      });
+    });
 
     if (!foundAnyData) {
       setError(`No data found for Student ID: ${studentId}. Please check the ID.`);
@@ -260,7 +309,7 @@ export default function ResultAnalysis() {
       const courseDetails = [];
 
       subjectCodes.forEach(code => {
-        const gradeLetter = gradesMap[code]; // Use the best grade (R or I)
+        const gradeLetter = gradesMap[code]; // This is the final, potentially improved grade
         const originalGradeLetter = originalGradesMap[code] || gradeLetter; // Fallback to current if no explicit original
         const gradePoint = getGradePoint(gradeLetter);
         const credit = COURSE_CREDITS;
@@ -270,10 +319,12 @@ export default function ResultAnalysis() {
 
         courseDetails.push({
           courseCode: code,
-          gradeLetter,
+          gradeLetter, // This is the final, potentially improved grade
           gradePoint,
-          originalGradeLetter: originalGradeLetter,
-          hasImprovementOpportunity: getGradePoint(originalGradeLetter) < getGradePoint('B-') || originalGradeLetter === 'F'
+          originalGradeLetter: originalGradeLetter, // This is the original regular grade
+          hasImprovementOpportunity: getGradePoint(originalGradeLetter) < getGradePoint('B-') || originalGradeLetter === 'F',
+          // Flag to indicate if an official improvement was applied from DB data
+          improvementApplied: (originalGradesMap[code] !== undefined && gradesMap[code] !== originalGradesMap[code])
         });
       });
 
@@ -307,24 +358,28 @@ export default function ResultAnalysis() {
       studentYgpaHistory.push(currentYgpa);
     }
 
-    setStudentData({
+    const newStudentData = {
       id: studentId,
       name: studentNameFound, // Use the fetched student name
       semesters: finalProcessedSemesters,
       overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00,
-    });
+      // Store initial GPA/CGPA history for charts
+      gpaHistory: studentGpaHistory,
+      cgpaHistory: studentCgpaHistory,
+    };
+
+    setStudentData(newStudentData);
+    setSimulatedStudentData(newStudentData); // Initialize simulated data with fetched data
 
     setLoading(false);
   }, [studentId, calculateGpa, calculateCgpaFromSemesters, calculateYgpaFromYears]);
 
   // Helper function to process all students' raw data into structured semester data
-  // This is now called only once on component mount for batch data.
   const processAllStudentsSemesterData = useCallback(async (allExistingTablesMetadata) => {
-    console.time("processAllStudentsSemesterData"); // Start timer
+    console.time("processAllStudentsSemesterData");
 
     let allStudentsRawData = {};
     const allStudentQueryPromises = [];
-    const allCourseGradesRaw = {}; // New object to collect all individual course grades
 
     // Determine the latest academic year and semester from metadata to ensure complete data
     let maxAcademicYear = 0;
@@ -350,55 +405,94 @@ export default function ResultAnalysis() {
     // Defensive filter to ensure only valid strings are in the array
     const requiredSemesterKeys = Array.from(requiredSemesterKeysSet).filter(k => typeof k === 'string' && k.length > 0);
 
+    // 'Roll no.' will be used for batch queries
+    const rollNoColumnName = 'Roll no.';
+
     allExistingTablesMetadata.forEach(meta => {
       const subjectCodesForTable = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
-      const selectColumnsForTable = ['"Roll no."', 'Name', ...subjectCodesForTable.map(code => `"${code}"`)];
+      // Ensure subjectCodesForTable only contains valid strings
+      const filteredSubjectCodesForTable = subjectCodesForTable.filter(code => typeof code === 'string' && code.length > 0);
+
+      // Construct the select string as in the working version for batch data
+      // Explicitly quote 'Roll no.' and subject codes
+      const selectColumnsForTable = [`"${rollNoColumnName}"`, 'Name', ...filteredSubjectCodesForTable.map(code => `"${code}"`)];
+      const formattedSelectStringForTable = selectColumnsForTable.join(',');
+
       allStudentQueryPromises.push({
         tableName: meta.table_name,
         academicYear: meta.academic_year,
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        promise: supabase.from(meta.table_name).select(selectColumnsForTable.join(','))
+        rollColName: rollNoColumnName,
+        // Pass the explicitly formatted string to .select()
+        promise: supabase.from(meta.table_name).select(formattedSelectStringForTable).then(response => {
+          // Handle potential errors or empty data for individual promises
+          if (response.error) {
+            console.error(`Error fetching data for table ${meta.table_name}:`, response.error);
+            return { data: [], error: response.error }; // Return empty data on error
+          }
+          return response;
+        })
       });
     });
 
     const responses = await Promise.allSettled(allStudentQueryPromises.map(q => q.promise));
 
-    responses.forEach((response, index) => {
-      if (response.status === 'fulfilled' && response.value.data && response.value.data.length > 0) {
-        const { tableName, academicYear, academicSemester, examYear, type } = allStudentQueryPromises[index];
-        response.value.data.forEach(studentRecord => {
-          const studentRoll = studentRecord['Roll no.'];
-          if (!allStudentsRawData[studentRoll]) {
-            allStudentsRawData[studentRoll] = {
-              name: studentRecord.Name || `Student ${studentRoll}`,
-              records: []
-            };
-          }
-          allStudentsRawData[studentRoll].records.push({
-            tableName, academicYear, academicSemester, examYear, type, data: studentRecord
-          });
+    // Group responses by table and then by student
+    const tempStudentData = new Map();
 
-          // Collect raw course grades for all students for average and rank calculation
-          const semesterKey = `${academicYear}-${academicSemester}`;
-          const subjectCodesForCurrentSemester = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-          subjectCodesForCurrentSemester.forEach(code => {
-            const gradeLetter = studentRecord[code];
-            if (gradeLetter !== undefined && gradeLetter !== null) { // Ensure grade exists
-              const gradePoint = getGradePoint(gradeLetter);
-              if (!allCourseGradesRaw[semesterKey]) {
-                allCourseGradesRaw[semesterKey] = {};
-              }
-              if (!allCourseGradesRaw[semesterKey][code]) {
-                allCourseGradesRaw[semesterKey][code] = [];
-              }
-              allCourseGradesRaw[semesterKey][code].push({ studentRoll, gradePoint });
-            }
-          });
+    responses.forEach((response, index) => {
+      const originalQueryInfo = allStudentQueryPromises[index];
+      if (response.status === 'fulfilled' && response.value.data && response.value.data.length > 0) {
+        response.value.data.forEach(studentRecord => {
+          // Dynamically get roll using the actual column name that was successfully queried
+          const studentRoll = studentRecord[originalQueryInfo.rollColName];
+          if (!studentRoll) return;
+
+          if (!tempStudentData.has(studentRoll)) {
+            tempStudentData.set(studentRoll, {
+              name: studentRecord.Name || `Student ${studentRoll}`,
+              records: new Map()
+            });
+          }
+          const studentEntry = tempStudentData.get(studentRoll);
+
+          if (!studentEntry.records.has(originalQueryInfo.tableName)) {
+            studentEntry.records.set(originalQueryInfo.tableName, {
+              bestRecord: null,
+              bestRollColName: null,
+              meta: originalQueryInfo
+            });
+          }
+          const tableEntry = studentEntry.records.get(originalQueryInfo.tableName);
+
+          // Since only 'Roll no.' is queried, assign directly
+          tableEntry.bestRecord = studentRecord;
+          tableEntry.bestRollColName = originalQueryInfo.rollColName;
         });
       }
     });
+
+    // Flatten tempStudentData into allStudentsRawData
+    for (const [studentRoll, studentEntry] of tempStudentData.entries()) {
+      allStudentsRawData[studentRoll] = {
+        name: studentEntry.name,
+        records: []
+      };
+      for (const [tableName, tableEntry] of studentEntry.records.entries()) {
+        if (tableEntry.bestRecord) {
+          allStudentsRawData[studentRoll].records.push({
+            tableName: tableEntry.meta.tableName,
+            academicYear: tableEntry.meta.academicYear,
+            academicSemester: tableEntry.meta.academicSemester,
+            examYear: tableEntry.meta.exam_year,
+            type: tableEntry.meta.type,
+            data: tableEntry.bestRecord
+          });
+        }
+      }
+    }
 
     // Process raw data into structured semester-wise GPA/CGPA for each student
     const allStudentsFullProcessedData = {};
@@ -415,54 +509,75 @@ export default function ResultAnalysis() {
         return a.academicSemester - b.academicSemester;
       });
 
-      sortedRecords.forEach(record => {
-        const { academicYear, academicSemester, examYear, type, data } = record;
+      // First pass: Process all Regular records to establish original grades
+      sortedRecords.filter(record => record.type === 'R').forEach(record => {
+        const { academicYear, academicSemester, examYear, data } = record;
         const semesterKey = `${academicYear}-${academicSemester}`;
 
-        if (!processedSemestersForThisStudent[semesterKey]) {
+        if (!processedSemestersForThisStudent[semesterKey] || examYear > processedSemestersForThisStudent[semesterKey].examYear) {
           processedSemestersForThisStudent[semesterKey] = {
-            examYear: -1,
-            type: '',
+            examYear: examYear,
+            type: 'R',
             grades: {},
-            totalPoints: 0, // Initialize
-            totalCredits: 0, // Initialize
+            originalGrades: {},
+            gpa: data.GPA,
+            ygpa: data.YGPA
           };
-        }
-
-        if (type === 'R') {
-          if (examYear > processedSemestersForThisStudent[semesterKey].examYear) {
-            processedSemestersForThisStudent[semesterKey].examYear = examYear;
-            processedSemestersForThisStudent[semesterKey].type = 'R';
-            processedSemestersForThisStudent[semesterKey].grades = {};
-            const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-            subjectCodes.forEach(code => {
-              if (data[code] !== undefined) {
-                processedSemestersForThisStudent[semesterKey].grades[code] = data[code];
-              }
-            });
-          }
-        } else if (type === 'I') {
-          const improvementRecord = data;
           const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-
           subjectCodes.forEach(code => {
-            const improvedGrade = improvementRecord[code];
-            if (improvedGrade !== undefined) {
-              const currentGrade = processedSemestersForThisStudent[semesterKey].grades[code];
-              const currentGradePoint = getGradePoint(currentGrade);
-              const improvedGradePoint = getGradePoint(improvedGrade);
-
-              const isEligibleForImprovement = currentGradePoint < getGradePoint('B-') || currentGrade === 'F';
-
-              if (isEligibleForImprovement && improvedGradePoint > currentGradePoint) {
-                processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
-              } else if (currentGrade === undefined && improvedGradePoint > 0) {
-                 processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
-              }
+            if (data[code] !== undefined && data[code] !== null) {
+              processedSemestersForThisStudent[semesterKey].grades[code] = data[code];
+              processedSemestersForThisStudent[semesterKey].originalGrades[code] = data[code];
             }
           });
         }
       });
+
+      // Second pass: Process Improvement records, applying them on top of established regular grades
+      sortedRecords.filter(record => record.type === 'I').forEach(record => {
+        const { academicYear, academicSemester, data } = record;
+        const semesterKey = `${academicYear}-${academicSemester}`;
+
+        const improvementRecord = data;
+        const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
+
+        if (!processedSemestersForThisStudent[semesterKey]) {
+          processedSemestersForThisStudent[semesterKey] = {
+            examYear: -1,
+            type: 'I',
+            grades: {},
+            originalGrades: {},
+            gpa: improvementRecord.GPA || 0.00,
+            ygpa: improvementRecord.YGPA || 0.00
+          };
+        }
+
+        subjectCodes.forEach(code => {
+          const improvedGrade = improvementRecord[code];
+          const isValidImprovedGrade = typeof improvedGrade === 'string' && getGradePoint(improvedGrade) !== undefined;
+
+          if (isValidImprovedGrade) {
+            const originalGrade = processedSemestersForThisStudent[semesterKey]?.originalGrades[code];
+            const currentAppliedGrade = processedSemestersForThisStudent[semesterKey]?.grades[code];
+
+            const originalGradePoint = getGradePoint(originalGrade);
+            const currentAppliedGradePoint = getGradePoint(currentAppliedGrade);
+            const improvedGradePoint = getGradePoint(improvedGrade);
+
+            const isEligibleForImprovement = originalGradePoint < getGradePoint('B-') || originalGrade === 'F';
+
+            if (isEligibleForImprovement && improvedGradePoint > currentAppliedGradePoint) {
+              processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
+            } else if (currentAppliedGrade === undefined) {
+               processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
+               if (processedSemestersForThisStudent[semesterKey].originalGrades[code] === undefined) {
+                  processedSemestersForThisStudent[semesterKey].originalGrades[code] = improvedGrade;
+               }
+            }
+          }
+        });
+      });
+
 
       // Calculate GPA, CGPA, YGPA for each semester after all improvements
       const chronologicalSemesterKeysForStudent = Object.keys(processedSemestersForThisStudent).sort((a, b) => {
@@ -533,15 +648,15 @@ export default function ResultAnalysis() {
       };
     }
 
-    // Removed allCourseMetrics calculation as it's no longer needed for display
-    console.timeEnd("processAllStudentsSemesterData"); // End timer
+    console.timeEnd("processAllStudentsSemesterData");
     return { allStudentsFullProcessedData, requiredSemesterKeys };
   }, [calculateGpa, calculateCgpaFromSemesters]);
 
 
   // New function to recalculate student's results based on expected grades
-  const recalculateStudentResults = useCallback((currentStudentData, currentExpectedGrades) => {
-    if (!currentStudentData) return null;
+  // This function now returns the new simulated student data
+  const recalculateStudentResults = useCallback((baseStudentData, currentExpectedGrades) => {
+    if (!baseStudentData || !baseStudentData.semesters) return null;
 
     const newSemesters = {};
     let overallTotalPoints = 0;
@@ -549,7 +664,7 @@ export default function ResultAnalysis() {
     let lastProcessedYear = null;
     let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
 
-    const sortedSemesterKeys = Object.keys(currentStudentData.semesters).sort((a, b) => {
+    const sortedSemesterKeys = Object.keys(baseStudentData.semesters).sort((a, b) => {
         const [yearA, semA] = a.split('-').map(Number);
         const [yearB, semB] = b.split('-').map(Number);
         if (yearA !== yearB) return yearA - yearB;
@@ -557,7 +672,10 @@ export default function ResultAnalysis() {
     });
 
     for (const semesterKey of sortedSemesterKeys) {
-        const originalSem = currentStudentData.semesters[semesterKey];
+        const originalSem = baseStudentData.semesters[semesterKey];
+        if (!originalSem) {
+            continue;
+        }
         const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
 
         let semesterAdjustedTotalPoints = 0;
@@ -566,11 +684,12 @@ export default function ResultAnalysis() {
             const expectedGradeKey = `${semesterKey}-${course.courseCode}`;
             const expectedGradeLetter = currentExpectedGrades[expectedGradeKey];
 
-            let gradeToUse = course.originalGradeLetter; // Start with the original grade
-            let gradePointToUse = getGradePoint(course.originalGradeLetter);
+            // Start with the grade that was already determined from the database (original OR applied improvement)
+            let gradeToUse = course.gradeLetter; 
+            let gradePointToUse = getGradePoint(course.gradeLetter);
 
-            // If an expected grade is provided and it's a valid grade, and it's an improvement
-            if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== 0.00 && getGradePoint(expectedGradeLetter) > getGradePoint(gradeToUse)) {
+            // If an expected grade is provided and it's a valid grade, and it's an improvement over the *current* grade
+            if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== undefined && getGradePoint(expectedGradeLetter) > gradePointToUse) {
                 gradeToUse = expectedGradeLetter;
                 gradePointToUse = getGradePoint(expectedGradeLetter);
             }
@@ -615,43 +734,19 @@ export default function ResultAnalysis() {
 
     const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
 
-    // Re-generate chart data based on new GPA/CGPA history
-    const newStudentGpaHistory = sortedSemesterKeys.map(key => newSemesters[key].gpa);
-    const newStudentCgpaHistory = sortedSemesterKeys.map(key => newSemesters[key].cgpa);
-    // Note: YGPA is not directly used in the current chart, but can be added if needed.
-
-    // Update only the 'Your GPA' and 'Your CGPA' datasets in the chart data
-    const updatedGpaChartData = gpaChartData ? {
-        ...gpaChartData,
-        datasets: gpaChartData.datasets.map(dataset =>
-            dataset.label === 'Your GPA' ? { ...dataset, data: newStudentGpaHistory } : dataset
-        )
-    } : null;
-
-    const updatedCgpaChartData = cgpaChartData ? {
-        ...cgpaChartData,
-        datasets: cgpaChartData.datasets.map(dataset =>
-            dataset.label === 'Your CGPA' ? { ...dataset, data: newStudentCgpaHistory } : dataset
-        )
-    } : null;
-
-    setGpaChartData(updatedGpaChartData);
-    setCgpaChartData(updatedCgpaChartData);
-
-
     return {
-        ...currentStudentData,
+        ...baseStudentData, // Copy original student data properties
         semesters: newSemesters,
         overallCgpa: newOverallCgpa,
+        gpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.gpa || 0),
+        cgpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.cgpa || 0),
     };
-  }, [gpaChartData, cgpaChartData]); // Added gpaChartData and cgpaChartData as dependencies
+  }, [calculateCgpaFromSemesters, calculateYgpaFromYears]);
 
 
   // New function to calculate overall ranks and chart averages for all students
-  // This function now uses the cached batch data
   const calculateOverallRankAndChartAverages = useCallback(async () => {
-    console.time("calculateOverallRankAndChartAverages"); // Start timer
-    console.log("Starting overall rank and chart averages calculation...");
+    console.time("calculateOverallRankAndChartAverages");
 
     if (!supabase || typeof supabase.from !== 'function') {
       console.error('Supabase client is not properly initialized. Check supabaseClient.js and Vercel environment variables.');
@@ -662,15 +757,10 @@ export default function ResultAnalysis() {
 
     // Use cached data if available
     if (!allProcessedBatchData || requiredSemesterKeysGlobal.length === 0) {
-        console.log("Batch data not yet loaded, waiting...");
-        // This scenario should be handled by the useEffect that loads batch data
-        // For now, we can return if data is not ready.
-        setLoading(true); // Keep loading true until batch data is ready
         return;
     }
 
     const allStudentsFullProcessedData = allProcessedBatchData;
-    // Removed allBatchCourseMetrics
     const requiredSemesterKeysArray = requiredSemesterKeysGlobal; // Use the globally stored keys
 
     const completeStudentsCgpas = []; // For ranking based on overall CGPA
@@ -693,10 +783,6 @@ export default function ResultAnalysis() {
         const [year, sem] = key.split('-').map(Number);
         return `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
     });
-
-    console.log("DEBUG: requiredSemesterKeysArray for chart processing:", requiredSemesterKeysArray);
-    console.log("DEBUG: allSemesterLabels for chart processing:", allSemesterLabels);
-
 
     // Prepare data for per-semester averages
     const semesterWiseGpas = {}; // { '1-1': [], '1-2': [], ... }
@@ -746,34 +832,6 @@ export default function ResultAnalysis() {
     const totalCompleteStudents = completeStudentsCgpas.length;
     const currentStudentRankData = completeStudentsCgpas.find(s => s.studentId === studentId);
 
-    // Prepare student's own GPA and CGPA history for charts
-    // This part will be updated by recalculateStudentResults to reflect expected grades
-    let studentGpaHistory = [];
-    let studentCgpaHistory = [];
-    const currentStudentProcessedData = allStudentsFullProcessedData[studentId];
-
-    if (currentStudentProcessedData && currentStudentProcessedData.gpaHistory && currentStudentProcessedData.cgpaHistory) {
-        allSemesterLabels.forEach(label => {
-            const semesterKey = requiredSemesterKeysArray.find(key => {
-                if (typeof key !== 'string') {
-                    console.warn("Invalid key found in requiredSemesterKeysArray during find:", key);
-                    return false;
-                }
-                const [year, sem] = key.split('-').map(Number);
-                return label === `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
-            });
-            if (semesterKey) {
-                studentGpaHistory.push(currentStudentProcessedData.gpaHistory[semesterKey] || 0);
-                studentCgpaHistory.push(currentStudentProcessedData.cgpaHistory[semesterKey] || 0);
-            } else {
-                studentGpaHistory.push(0);
-                studentCgpaHistory.push(0);
-            }
-        });
-    } else {
-        console.warn(`Student data for ${studentId} is incomplete for chart history (missing gpaHistory/cgpaHistory).`);
-    }
-
     if (currentStudentRankData) {
       let rankStart = currentStudentRankData.rank;
       let rankEnd = rankStart;
@@ -786,12 +844,8 @@ export default function ResultAnalysis() {
       }
       let rankDisplayString = (rankStart === rankEnd) ? `${rankStart} of ${totalCompleteStudents}` : `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
       setOverallStudentRank(rankDisplayString);
-
-      // No longer augmenting studentData with course-level metrics here
-      // studentData is updated by fetchAndProcessStudentData and recalculateStudentResults
     } else {
       setOverallStudentRank('N/A (Missing Semesters)');
-      // setStudentData(prevData => ({ ...prevData, overallCgpa: 'N/A' })); // This might overwrite actual studentData
     }
 
     // Batch Average CGPA
@@ -861,13 +915,13 @@ export default function ResultAnalysis() {
       bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? parseFloat((bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length).toFixed(2)) : 0);
     });
 
-    // Set GPA Chart Data (Your GPA data will be updated by recalculateStudentResults)
-    setGpaChartData(prevData => ({
+    // Set GPA Chart Data (Your GPA data will be updated by the separate useEffect)
+    setGpaChartData({
       labels: allSemesterLabels,
       datasets: [
         {
           label: 'Your GPA',
-          data: studentGpaHistory, // Initial data, will be overwritten by recalculateStudentResults
+          data: [], // Initial empty, will be populated by updateChartDataEffect
           borderColor: 'rgba(0, 123, 255, 1)',
           backgroundColor: 'rgba(0, 123, 255, 0.2)',
           fill: true,
@@ -898,15 +952,15 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
       ],
-    }));
+    });
 
-    // Set CGPA Chart Data (Your CGPA data will be updated by recalculateStudentResults)
-    setCgpaChartData(prevData => ({
+    // Set CGPA Chart Data (Your CGPA data will be updated by the separate useEffect)
+    setCgpaChartData({
       labels: allSemesterLabels,
       datasets: [
         {
           label: 'Your CGPA',
-          data: studentCgpaHistory, // Initial data, will be overwritten by recalculateStudentResults
+          data: [], // Initial empty, will be populated by updateChartDataEffect
           borderColor: 'rgba(0, 123, 255, 1)',
           backgroundColor: 'rgba(0, 123, 255, 0.2)',
           fill: true,
@@ -937,17 +991,14 @@ export default function ResultAnalysis() {
           tension: 0.3,
         },
       ],
-    }));
+    });
 
-    console.log("Overall rank and chart averages calculation finished.");
-    console.timeEnd("calculateOverallRankAndChartAverages"); // End timer
+    console.timeEnd("calculateOverallRankAndChartAverages");
   }, [studentId, allProcessedBatchData, requiredSemesterKeysGlobal]);
 
 
   // Effect to trigger initial search on component mount with the default studentId
   useEffect(() => {
-    // Only trigger if studentId is not empty (i.e., it's the default or a valid input)
-    // and no search has been performed yet (studentData is null)
     if (studentId.trim().length === 10 && !studentData && !loading && !error) {
       fetchAndProcessStudentData();
     }
@@ -956,13 +1007,10 @@ export default function ResultAnalysis() {
   // NEW useEffect: Load all batch data once on component mount
   useEffect(() => {
     const loadAllBatchData = async () => {
-      // Only load if supabase is ready and data hasn't been loaded yet
       if (supabase && typeof supabase.from === 'function' && !allProcessedBatchData) {
-        console.log("Initial load of all batch data for ranking and averages...");
         setLoading(true); // Indicate loading for initial batch data
         try {
           const allExistingTablesMetadata = await fetchExistingTableNames();
-          // Removed allCourseMetrics from the destructuring as it's no longer returned/needed
           const { allStudentsFullProcessedData, requiredSemesterKeys } = await processAllStudentsSemesterData(allExistingTablesMetadata);
           setAllProcessedBatchData(allStudentsFullProcessedData);
           setRequiredSemesterKeysGlobal(requiredSemesterKeys);
@@ -975,8 +1023,7 @@ export default function ResultAnalysis() {
       }
     };
     loadAllBatchData();
-  }, [supabase, allProcessedBatchData, processAllStudentsSemesterData]); // Dependencies ensure it runs once when supabase is available
-
+  }, [supabase, allProcessedBatchData, processAllStudentsSemesterData]);
 
   // Trigger overall rank and chart average calculation after studentData is loaded
   // AND after all batch data is loaded
@@ -987,15 +1034,71 @@ export default function ResultAnalysis() {
   }, [studentData, allProcessedBatchData, requiredSemesterKeysGlobal, calculateOverallRankAndChartAverages]);
 
   // NEW useEffect: Recalculate student results when expectedGrades or base studentData changes
+  // This now updates simulatedStudentData, not studentData
   useEffect(() => {
-    if (studentData) {
-      const updatedStudentData = recalculateStudentResults(studentData, expectedGrades);
-      // Only update if there's a change to prevent infinite loops from state updates
-      if (JSON.stringify(updatedStudentData) !== JSON.stringify(studentData)) {
-          setStudentData(updatedStudentData);
+    if (studentData) { // Use studentData as the base for simulation
+      const updatedSimulatedData = recalculateStudentResults(studentData, expectedGrades);
+      // Only update if the content of simulatedStudentData actually changes to prevent infinite loops
+      if (JSON.stringify(updatedSimulatedData) !== JSON.stringify(simulatedStudentData)) {
+          setSimulatedStudentData(updatedSimulatedData);
       }
     }
-  }, [expectedGrades, studentData, recalculateStudentResults]); // Dependencies
+  }, [expectedGrades, studentData, recalculateStudentResults, simulatedStudentData]); // Added simulatedStudentData as dependency for comparison
+
+  // NEW useEffect: Update chart data when simulatedStudentData or requiredSemesterKeysGlobal changes
+  useEffect(() => {
+    if (simulatedStudentData && requiredSemesterKeysGlobal.length > 0) {
+        const allSemesterLabels = requiredSemesterKeysGlobal.sort((a, b) => {
+            const [yearA, semA] = a.split('-').map(Number);
+            const [yearB, semB] = b.split('-').map(Number);
+            if (yearA !== yearB) return yearA - yearB;
+            return semA - semB;
+        }).map(key => {
+            const [year, sem] = key.split('-').map(Number);
+            return `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+        });
+
+        const newStudentGpaHistory = allSemesterLabels.map(label => {
+            const semesterKey = requiredSemesterKeysGlobal.find(key => {
+                const [year, sem] = key.split('-').map(Number);
+                return label === `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+            });
+            // Use simulatedStudentData for chart data
+            return simulatedStudentData.semesters[semesterKey]?.gpa || 0;
+        });
+        const newStudentCgpaHistory = allSemesterLabels.map(label => {
+            const semesterKey = requiredSemesterKeysGlobal.find(key => {
+                const [year, sem] = key.split('-').map(Number);
+                return label === `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+            });
+            // Use simulatedStudentData for chart data
+            return simulatedStudentData.semesters[semesterKey]?.cgpa || 0;
+        });
+
+        // Update GpaChartData
+        setGpaChartData(prevData => {
+            if (!prevData) return null;
+            return {
+                ...prevData,
+                datasets: prevData.datasets.map(dataset =>
+                    dataset.label === 'Your GPA' ? { ...dataset, data: newStudentGpaHistory } : dataset
+                )
+            };
+        });
+
+        // Update CgpaChartData
+        setCgpaChartData(prevData => {
+            if (!prevData) return null;
+            return {
+                ...prevData,
+                datasets: prevData.datasets.map(dataset =>
+                    dataset.label === 'Your CGPA' ? { ...dataset, data: newStudentCgpaHistory } : dataset
+                )
+            };
+        });
+    }
+  }, [simulatedStudentData, requiredSemesterKeysGlobal, setGpaChartData, setCgpaChartData]);
+
 
   const handleExpectedGradeChange = (semesterKey, courseCode, value) => {
     const newExpectedGrades = { ...expectedGrades };
@@ -1038,10 +1141,10 @@ export default function ResultAnalysis() {
           </button>
         </div>
         {error && <p className="text-red-500 mt-4 text-center font-bold">{error}</p>}
-        {loading && <p className="text-blue-400 mt-4 text-center">Loading student data...</p>}
       </div>
 
-      {loading && !studentData ? ( // Show loading specific to initial batch data or individual search
+      {/* Consolidated Loading, Error, and Data Display */}
+      {loading && !simulatedStudentData ? (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-blue-400">
           <p>Loading data...</p>
         </div>
@@ -1049,14 +1152,14 @@ export default function ResultAnalysis() {
         <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-red-500">
           <p>{error}</p>
         </div>
-      ) : studentData ? (
+      ) : simulatedStudentData ? (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-          <h2 className="text-2xl font-semibold mb-4 text-center">Results for Student ID: {studentData.id} ({studentData.name})</h2>
+          <h2 className="text-2xl font-semibold mb-4 text-center">Results for Student ID: {simulatedStudentData.id} ({simulatedStudentData.name})</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall CGPA:</p>
-              <p className="text-4xl font-bold text-green-400">{studentData.overallCgpa}</p>
+              <p className="text-4xl font-bold text-green-400">{simulatedStudentData.overallCgpa}</p>
             </div>
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall Rank:</p>
@@ -1157,13 +1260,13 @@ export default function ResultAnalysis() {
                 <tr>
                   <th className="py-3 px-4 border-b border-gray-600">Semester</th>
                   <th className="py-3 px-4 border-b border-gray-600">GPA</th>
-                  <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
                   <th className="py-3 px-4 border-b border-gray-600">YGPA</th>
+                  <th className="py-3 px-4 border-b border-gray-600">CGPA</th>
                   <th className="py-3 px-4 border-b border-gray-600">Details</th>
                 </tr>
               </thead>
               <tbody>
-                {studentData.semesters && Object.entries(studentData.semesters).map(([semesterKey, sem]) => (
+                {simulatedStudentData.semesters && Object.entries(simulatedStudentData.semesters).map(([semesterKey, sem]) => (
                   <React.Fragment key={semesterKey}>
                     <tr
                       className="hover:bg-gray-600 cursor-pointer"
@@ -1171,8 +1274,8 @@ export default function ResultAnalysis() {
                     >
                       <td className="py-2 px-4 border-b border-gray-600">{sem.semesterDisplayName}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.gpa}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.ygpa}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">
                         {expandedSemester === semesterKey ? '▲ Hide' : '▼ Show'}
                       </td>
@@ -1187,8 +1290,8 @@ export default function ResultAnalysis() {
                                 <thead>
                                   <tr>
                                     <th className="py-2 px-3 border-b border-gray-600">Course Code</th>
-                                    <th className="py-2 px-3 border-b border-gray-600">Current Grade</th>
-                                    <th className="py-2 px-3 border-b border-gray-600">Expected Improvement Grade</th>
+                                    <th className="py-2 px-3 border-b border-gray-600">Regular Grade</th>
+                                    <th className="py-2 px-3 border-b border-gray-600">Expected or Improvement Grade</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1196,18 +1299,26 @@ export default function ResultAnalysis() {
                                     <tr key={idx} className="hover:bg-gray-600">
                                       <td className="py-2 px-3 border-b border-gray-600">{course.courseCode}</td>
                                       <td className="py-2 px-3 border-b border-gray-600">
-                                        <span className="font-bold">{course.gradeLetter} ({course.gradePoint.toFixed(2)})</span>
+                                        <span className="font-bold">{course.originalGradeLetter} ({getGradePoint(course.originalGradeLetter).toFixed(2)})</span>
                                       </td>
                                       <td className="py-2 px-3 border-b border-gray-600">
-                                        {course.hasImprovementOpportunity ? (
-                                          <input
-                                            type="text"
-                                            className="p-1 w-24 border border-gray-600 rounded-md bg-gray-800 text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            value={expectedGrades[`${semesterKey}-${course.courseCode}`] || ''}
-                                            onChange={(e) => handleExpectedGradeChange(semesterKey, course.courseCode, e.target.value)}
-                                            placeholder={course.originalGradeLetter}
-                                            maxLength={2} // Max length for grades like A+, B-
-                                          />
+                                        {/* Display actual applied improvement grade or input for expected */}
+                                        {course.improvementApplied ? (
+                                          <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(2)})</span>
+                                        ) : (course.hasImprovementOpportunity || course.gradeLetter === 'F') ? (
+                                          <div className="flex items-center">
+                                            {course.gradeLetter === 'F' && (
+                                              <span className="text-red-500 mr-2 font-bold">F!</span>
+                                            )}
+                                            <input
+                                              type="text"
+                                              className="p-1 w-24 border border-gray-600 rounded-md bg-gray-800 text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                              value={expectedGrades[`${semesterKey}-${course.courseCode}`] || ''}
+                                              onChange={(e) => handleExpectedGradeChange(semesterKey, course.courseCode, e.target.value)}
+                                              placeholder={course.originalGradeLetter}
+                                              maxLength={2}
+                                            />
+                                          </div>
                                         ) : (
                                           <span className="text-gray-400">N/A</span>
                                         )}
