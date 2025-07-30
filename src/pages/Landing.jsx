@@ -50,7 +50,7 @@ const Landing = () => {
         transition={{ duration: 1.2 }}
       >
         <h1 className="text-5xl md:text-6xl font-extrabold mb-4 drop-shadow text-white">
-          <TypewriterText key="hero-typewriter" text=" Welcome to ProjectAlpha" speed={100} />
+          <TypewriterText key="hero-typewriter" text=". . . Welcome to ProjectAlpha . . ." speed={100} />
         </h1>
         <p className="text-indigo-200 text-lg max-w-2xl mx-auto font-medium">
           A dynamic GPA visualization platform, empowering students and faculty with clear, interactive insights into academic performance.
@@ -95,7 +95,7 @@ const Landing = () => {
           gradientFrom="green-800"
           gradientTo="green-700"
           border="green-300"
-          text="Check performance by student ID or course code. Track GPA, rank, and grade distribution—all rendered instantly and interactively."
+          text="Check performance by student ID or course code. Track GPA, rank, and grade distribution—all rendered instantly and interactively. (All data collected from publicly available sources. Secondary data formation was not reuse-friendly, so there are some issues.)"
           button={{ label: 'Go to Analysis', onClick: () => navigate('/result-analysis'), color: 'green' }}
         />
       </ScrollFade>
