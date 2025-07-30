@@ -708,9 +708,9 @@ export default function ResultAnalysis() {
                   </thead>
                   <tbody>
                     {nearbyStudents.map((student, index) => (
-                      <tr key={student.id} className={`hover:bg-gray-600 ${student.id === studentId ? 'bg-blue-700 font-bold' : ''}`}>
+                      <tr key={student.studentId} className={`hover:bg-gray-600 ${student.studentId === studentId ? 'bg-blue-700 font-bold' : ''}`}>
                         <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td> {/* Corrected to student.studentId */}
                         <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                       </tr>
