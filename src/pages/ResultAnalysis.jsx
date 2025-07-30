@@ -416,6 +416,19 @@ export default function ResultAnalysis() {
     let allStudentsRawData = {};
     const allStudentQueryPromises = [];
 
+    // 1. Identify latestRegularFirstSemesterTable globally (once)
+    let latestRegularFirstSemesterTable = null;
+    let latestRegularFirstSemesterExamYear = -1;
+    allExistingTablesMetadata.forEach(meta => {
+        if (meta.result_type === 'R' && meta.academic_semester === 1) {
+            if (meta.exam_year > latestRegularFirstSemesterExamYear) {
+                latestRegularFirstSemesterExamYear = meta.exam_year;
+                latestRegularFirstSemesterTable = meta.table_name;
+            }
+        }
+    });
+    console.log("Latest regular first semester table for batch names:", latestRegularFirstSemesterTable);
+
     // Determine the latest academic year and semester from metadata to ensure complete data
     let maxAcademicYear = 0;
     let maxAcademicSemester = 0;
@@ -448,8 +461,11 @@ export default function ResultAnalysis() {
       // Ensure subjectCodesForTable only contains valid strings
       const filteredSubjectCodesForTable = subjectCodesForTable.filter(code => typeof code === 'string' && code.length > 0);
 
-      // Construct the select string for batch data: DO NOT include 'Name' here
-      const selectColumnsForTable = [`"${rollNoColumnName}"`, ...filteredSubjectCodesForTable.map(code => `"${code}"`)];
+      // Construct the select string for batch data: Conditionally include 'Name'
+      let selectColumnsForTable = [`"${rollNoColumnName}"`, ...filteredSubjectCodesForTable.map(code => `"${code}"`)];
+      if (meta.table_name === latestRegularFirstSemesterTable) {
+          selectColumnsForTable.push('Name'); // Only include Name for this specific table
+      }
       const formattedSelectStringForTable = selectColumnsForTable.join(',');
 
       allStudentQueryPromises.push({
@@ -474,7 +490,7 @@ export default function ResultAnalysis() {
     const responses = await Promise.allSettled(allStudentQueryPromises.map(q => q.promise));
 
     // Group responses by table and then by student
-    const tempStudentData = new Map();
+    const tempStudentData = new Map(); // Map to hold student data temporarily, including their best name
 
     responses.forEach((response, index) => {
       const originalQueryInfo = allStudentQueryPromises[index];
@@ -486,11 +502,16 @@ export default function ResultAnalysis() {
 
           if (!tempStudentData.has(studentRoll)) {
             tempStudentData.set(studentRoll, {
-              name: studentRecord.Name || `Student ${studentRoll}`, // Default name if not available
+              name: `Student ${studentRoll}`, // Initialize with default name
               records: new Map()
             });
           }
           const studentEntry = tempStudentData.get(studentRoll);
+
+          // If this record contains a Name and it's from the designated name-fetching table, update the student's name
+          if (originalQueryInfo.tableName === latestRegularFirstSemesterTable && studentRecord.Name) {
+              studentEntry.name = studentRecord.Name;
+          }
 
           if (!studentEntry.records.has(originalQueryInfo.tableName)) {
             studentEntry.records.set(originalQueryInfo.tableName, {
@@ -501,7 +522,7 @@ export default function ResultAnalysis() {
           }
           const tableEntry = studentEntry.records.get(originalQueryInfo.tableName);
 
-          // Since only 'Roll no.' is queried, assign directly
+          // Assign directly
           tableEntry.bestRecord = studentRecord;
           tableEntry.bestRollColName = originalQueryInfo.rollColName;
         });
@@ -511,7 +532,7 @@ export default function ResultAnalysis() {
     // Flatten tempStudentData into allStudentsRawData
     for (const [studentRoll, studentEntry] of tempStudentData.entries()) {
       allStudentsRawData[studentRoll] = {
-        name: studentEntry.name,
+        name: studentEntry.name, // Use the potentially updated name
         records: []
       };
       for (const [tableName, tableEntry] of studentEntry.records.entries()) {
@@ -673,7 +694,7 @@ export default function ResultAnalysis() {
       const hasAllRequiredSemesters = requiredSemesterKeys.every(key => studentSemesterKeys.has(key)); // Use the array version
 
       allStudentsFullProcessedData[studentRoll] = {
-        name: student.name,
+        name: student.name, // This will be "Student [ID]" for batch data, or the actual name for the current student
         overallCgpa: studentOverallCgpa,
         semesters: processedSemestersForThisStudent,
         isComplete: hasAllRequiredSemesters,
