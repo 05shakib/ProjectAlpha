@@ -2,9 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient'; // Ensure this path is correct
 import ResultTrendChart from '../components/ResultTrendChart';
 import {
-  gradeToGpa,
   COURSE_CREDITS,
-  COURSES_PER_SEMESTER,
   fetchExistingTableNames,
   getSubjectCodesForAcademicSemester,
   getGradePoint
@@ -18,11 +16,15 @@ export default function ResultAnalysis() {
   const [studentData, setStudentData] = useState(null);
   const [overallStudentRank, setOverallStudentRank] = useState(null);
   const [topStudents, setTopStudents] = useState([]);
-  const [nearbyStudents, setNearbyStudents] = useState([]); // New state for students around the current one
+  const [nearbyStudents, setNearbyStudents] = useState([]);
   const [batchAverageCgpa, setBatchAverageCgpa] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedSemester, setExpandedSemester] = useState(null);
+
+  // New states for chart averages
+  const [gpaChartData, setGpaChartData] = useState(null);
+  const [cgpaChartData, setCgpaChartData] = useState(null);
 
   // Helper function to calculate GPA for a set of grades
   const calculateGpa = useCallback((grades) => {
@@ -67,8 +69,10 @@ export default function ResultAnalysis() {
     setStudentData(null); // Explicitly set to null to ensure re-render of initial state if no data found
     setOverallStudentRank(null);
     setTopStudents([]);
-    setNearbyStudents([]); // Clear nearby students
+    setNearbyStudents([]);
     setBatchAverageCgpa(null);
+    setGpaChartData(null); // Clear chart data
+    setCgpaChartData(null); // Clear chart data
 
     // Validate student ID length
     if (studentId.trim().length !== 10) {
@@ -275,64 +279,22 @@ export default function ResultAnalysis() {
       studentYgpaHistory.push(currentYgpa);
     }
 
-    const studentGpaData = {
-      labels: semesterLabels,
-      datasets: [
-        {
-          label: 'Your GPA',
-          data: studentGpaHistory,
-          borderColor: 'rgba(0, 123, 255, 1)',
-          backgroundColor: 'rgba(0, 123, 255, 0.2)',
-          fill: true,
-          tension: 0.3,
-        },
-        {
-          label: 'Your CGPA',
-          data: studentCgpaHistory,
-          borderColor: 'rgba(40, 167, 69, 1)',
-          backgroundColor: 'rgba(40, 167, 69, 0.2)',
-          fill: true,
-          tension: 0.3,
-        },
-        {
-          label: 'Your YGPA',
-          data: studentYgpaHistory,
-          borderColor: 'rgba(255, 193, 7, 1)',
-          backgroundColor: 'rgba(255, 193, 7, 0.2)',
-          fill: true,
-          tension: 0.3,
-        },
-      ],
-    };
-
     setStudentData({
       id: studentId,
       name: studentNameFound, // Use the fetched student name
       semesters: finalProcessedSemesters,
-      gpaTrend: studentGpaData,
       overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00,
     });
 
     setLoading(false);
   }, [studentId, calculateGpa, calculateCgpaFromSemesters, calculateYgpaFromYears]);
 
-  // New function to calculate overall ranks for all students
-  const calculateOverallRank = useCallback(async () => {
-    console.log("Starting overall rank calculation...");
-    let allStudentsRawData = {}; // { 'studentId': [{tableName: '...', data: {...}}, ...], ... }
-
-    // Crucial check: Is supabase initialized?
-    if (!supabase || typeof supabase.from !== 'function') {
-      console.error('Supabase client is not properly initialized for rank calculation. Check supabaseClient.js and Vercel environment variables.');
-      setOverallStudentRank('Error'); // Indicate error for rank
-      setBatchAverageCgpa('Error');
-      return;
-    }
-
-    const allExistingTablesMetadata = await fetchExistingTableNames();
+  // Helper function to process all students' raw data into structured semester data
+  const processAllStudentsSemesterData = useCallback(async (allExistingTablesMetadata) => {
+    let allStudentsRawData = {};
     const allStudentQueryPromises = [];
 
-    // Determine the latest academic year and semester from metadata
+    // Determine the latest academic year and semester from metadata to ensure complete data
     let maxAcademicYear = 0;
     let maxAcademicSemester = 0;
     allExistingTablesMetadata.forEach(meta => {
@@ -345,23 +307,19 @@ export default function ResultAnalysis() {
     });
 
     // Generate all required semester keys up to the latest one
-    const requiredSemesterKeys = new Set();
+    const requiredSemesterKeysSet = new Set(); // Use a Set initially for uniqueness
     for (let y = 1; y <= maxAcademicYear; y++) {
       for (let s = 1; s <= 2; s++) { // Assuming only 2 semesters per year
         if (y < maxAcademicYear || (y === maxAcademicYear && s <= maxAcademicSemester)) {
-          requiredSemesterKeys.add(`${y}-${s}`);
+          requiredSemesterKeysSet.add(`${y}-${s}`);
         }
       }
     }
-    console.log("Required semester keys for completeness:", Array.from(requiredSemesterKeys));
-
+    const requiredSemesterKeys = Array.from(requiredSemesterKeysSet); // Convert to Array here
 
     allExistingTablesMetadata.forEach(meta => {
-      // Dynamically get subject codes for the specific academic year and semester of this table
       const subjectCodesForTable = getSubjectCodesForAcademicSemester(meta.academic_year, meta.academic_semester);
-      // Include "Roll no." and "Name" in the select columns for all student data
       const selectColumnsForTable = ['"Roll no."', 'Name', ...subjectCodesForTable.map(code => `"${code}"`)];
-
       allStudentQueryPromises.push({
         tableName: meta.table_name,
         academicYear: meta.academic_year,
@@ -372,217 +330,440 @@ export default function ResultAnalysis() {
       });
     });
 
-    try {
-      const responses = await Promise.allSettled(allStudentQueryPromises.map(q => q.promise));
+    const responses = await Promise.allSettled(allStudentQueryPromises.map(q => q.promise));
 
-      responses.forEach((response, index) => {
-        if (response.status === 'fulfilled' && response.value.data && response.value.data.length > 0) {
-          const { tableName, academicYear, academicSemester, examYear, type } = allStudentQueryPromises[index];
-          response.value.data.forEach(studentRecord => {
-            const studentRoll = studentRecord['Roll no.']; // Access with bracket notation for spaces
-            if (!allStudentsRawData[studentRoll]) {
-              allStudentsRawData[studentRoll] = {
-                name: studentRecord.Name || `Student ${studentRoll}`, // Capture name
-                records: []
-              };
-            }
-            allStudentsRawData[studentRoll].records.push({
-              tableName, academicYear, academicSemester, examYear, type, data: studentRecord
-            });
-          });
-        } else {
-          console.warn(`Query for ${allStudentQueryPromises[index].tableName} failed or returned no data for rank calculation:`, response.reason || 'No data');
-        }
-      });
-      console.log("Raw data collected for all students:", Object.keys(allStudentsRawData).length);
-
-      // Now process each student's raw data to get their final grades and CGPA
-      const allStudentsCgpas = []; // [{ studentId: '...', name: '...', cgpa: X.XX, isComplete: boolean }, ...]
-
-      for (const studentRoll in allStudentsRawData) {
-        const student = allStudentsRawData[studentRoll];
-        const processedSemestersForThisStudent = {};
-
-        student.records.forEach(record => {
-          const { academicYear, academicSemester, examYear, type, data } = record;
-          const semesterKey = `${academicYear}-${academicSemester}`;
-
-          if (!processedSemestersForThisStudent[semesterKey]) {
-            processedSemestersForThisStudent[semesterKey] = {
-              examYear: -1,
-              type: '',
-              grades: {},
+    responses.forEach((response, index) => {
+      if (response.status === 'fulfilled' && response.value.data && response.value.data.length > 0) {
+        const { tableName, academicYear, academicSemester, examYear, type } = allStudentQueryPromises[index];
+        response.value.data.forEach(studentRecord => {
+          const studentRoll = studentRecord['Roll no.'];
+          if (!allStudentsRawData[studentRoll]) {
+            allStudentsRawData[studentRoll] = {
+              name: studentRecord.Name || `Student ${studentRoll}`,
+              records: []
             };
           }
+          allStudentsRawData[studentRoll].records.push({
+            tableName, academicYear, academicSemester, examYear, type, data: studentRecord
+          });
+        });
+      }
+    });
 
-          if (type === 'R') {
-            if (examYear > processedSemestersForThisStudent[semesterKey].examYear) {
-              processedSemestersForThisStudent[semesterKey] = {
-                examYear: examYear,
-                type: 'R',
-                grades: {},
-              };
-              const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-              subjectCodes.forEach(code => {
-                if (data[code] !== undefined) {
-                  processedSemestersForThisStudent[semesterKey].grades[code] = data[code];
-                }
-              });
-            }
-          } else if (type === 'I') {
-            const improvementRecord = data;
+    // Process raw data into structured semester-wise GPA/CGPA for each student
+    const allStudentsFullProcessedData = {};
+    for (const studentRoll in allStudentsRawData) {
+      const student = allStudentsRawData[studentRoll];
+      const processedSemestersForThisStudent = {};
+      let currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 };
+      let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
+      let lastProcessedYear = null;
+
+      // Sort records by academic year and semester for correct CGPA calculation
+      const sortedRecords = student.records.sort((a, b) => {
+        if (a.academicYear !== b.academicYear) return a.academicYear - b.academicYear;
+        return a.academicSemester - b.academicSemester;
+      });
+
+      sortedRecords.forEach(record => {
+        const { academicYear, academicSemester, examYear, type, data } = record;
+        const semesterKey = `${academicYear}-${academicSemester}`;
+
+        if (!processedSemestersForThisStudent[semesterKey]) {
+          processedSemestersForThisStudent[semesterKey] = {
+            examYear: -1,
+            type: '',
+            grades: {},
+            totalPoints: 0, // Initialize
+            totalCredits: 0, // Initialize
+          };
+        }
+
+        if (type === 'R') {
+          if (examYear > processedSemestersForThisStudent[semesterKey].examYear) {
+            processedSemestersForThisStudent[semesterKey].examYear = examYear;
+            processedSemestersForThisStudent[semesterKey].type = 'R';
+            processedSemestersForThisStudent[semesterKey].grades = {};
             const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
-
             subjectCodes.forEach(code => {
-              const improvedGrade = improvementRecord[code];
-              if (improvedGrade !== undefined) {
-                const currentGrade = processedSemestersForThisStudent[semesterKey].grades[code];
-                const currentGradePoint = getGradePoint(currentGrade);
-                const improvedGradePoint = getGradePoint(improvedGrade);
-
-                const isEligibleForImprovement = currentGradePoint < getGradePoint('B-') || currentGrade === 'F';
-
-                if (isEligibleForImprovement && improvedGradePoint > currentGradePoint) {
-                  processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
-                } else if (currentGrade === undefined && improvedGradePoint > 0) {
-                  processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
-                }
+              if (data[code] !== undefined) {
+                processedSemestersForThisStudent[semesterKey].grades[code] = data[code];
               }
             });
           }
-        });
+        } else if (type === 'I') {
+          const improvementRecord = data;
+          const subjectCodes = getSubjectCodesForAcademicSemester(academicYear, academicSemester);
 
-        // Calculate CGPA for this student based on their processed semesters
-        let studentTotalPoints = 0;
-        let studentTotalCredits = 0;
-        const sortedSemesterKeys = Object.keys(processedSemestersForThisStudent).sort((a, b) => {
-          const [yearA, semA] = a.split('-').map(Number);
-          const [yearB, semB] = b.split('-').map(Number);
-          if (yearA !== yearB) return yearA - yearB;
-          return semA - semB;
-        });
+          subjectCodes.forEach(code => {
+            const improvedGrade = improvementRecord[code];
+            if (improvedGrade !== undefined) {
+              const currentGrade = processedSemestersForThisStudent[semesterKey].grades[code];
+              const currentGradePoint = getGradePoint(currentGrade);
+              const improvedGradePoint = getGradePoint(improvedGrade);
 
-        for (const semesterKey of sortedSemesterKeys) {
-          const gradesMap = processedSemestersForThisStudent[semesterKey].grades;
-          Object.values(gradesMap).forEach(gradeLetter => {
-            const gradePoint = getGradePoint(gradeLetter);
-            const credit = COURSE_CREDITS;
-            studentTotalPoints += gradePoint * credit;
-            studentTotalCredits += credit;
+              const isEligibleForImprovement = currentGradePoint < getGradePoint('B-') || currentGrade === 'F';
+
+              if (isEligibleForImprovement && improvedGradePoint > currentGradePoint) {
+                processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
+              } else if (currentGrade === undefined && improvedGradePoint > 0) {
+                 processedSemestersForThisStudent[semesterKey].grades[code] = improvedGrade;
+              }
+            }
           });
         }
-        const studentCgpa = studentTotalCredits > 0 ? parseFloat((studentTotalPoints / studentTotalCredits).toFixed(2)) : 0.00;
+      });
 
-        // Determine if the student has records for all required semesters
-        const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
-        const hasAllRequiredSemesters = Array.from(requiredSemesterKeys).every(key => studentSemesterKeys.has(key));
+      // Calculate GPA, CGPA, YGPA for each semester after all improvements
+      const chronologicalSemesterKeysForStudent = Object.keys(processedSemestersForThisStudent).sort((a, b) => {
+        const [yearA, semA] = a.split('-').map(Number);
+        const [yearB, semB] = b.split('-').map(Number);
+        if (yearA !== yearB) return yearA - yearB;
+        return semA - semB;
+      });
 
-        allStudentsCgpas.push({
+      currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 }; // Reset for each student
+      currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
+      lastProcessedYear = null;
+
+      const studentSemesterGpas = {};
+      const studentSemesterCgpas = {};
+
+      for (const semesterKey of chronologicalSemesterKeysForStudent) {
+        const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
+        const gradesMap = processedSemestersForThisStudent[semesterKey].grades;
+        let semesterTotalPoints = 0;
+        let semesterTotalCredits = 0;
+
+        Object.values(gradesMap).forEach(gradeLetter => {
+          const gradePoint = getGradePoint(gradeLetter);
+          const credit = COURSE_CREDITS;
+          semesterTotalPoints += gradePoint * credit;
+          semesterTotalCredits += credit;
+        });
+
+        const semesterGpa = semesterTotalCredits > 0 ? parseFloat((semesterTotalPoints / semesterTotalCredits).toFixed(2)) : 0.00;
+        studentSemesterGpas[semesterKey] = semesterGpa;
+
+        processedSemestersForThisStudent[semesterKey].totalPoints = semesterTotalPoints;
+        processedSemestersForThisStudent[semesterKey].totalCredits = semesterTotalCredits;
+        processedSemestersForThisStudent[semesterKey].gpa = semesterGpa;
+
+        currentCgpaAccumulator.totalPoints += semesterTotalPoints;
+        currentCgpaAccumulator.totalCredits += semesterTotalCredits;
+        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+        studentSemesterCgpas[semesterKey] = currentCgpa;
+        processedSemestersForThisStudent[semesterKey].cgpa = currentCgpa;
+
+
+        if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
+          currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
+          lastProcessedYear = academicYear;
+        }
+        currentYearAccumulator.totalPoints += semesterTotalPoints;
+        currentYearAccumulator.totalCredits += semesterTotalCredits;
+        processedSemestersForThisStudent[semesterKey].ygpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
+
+      }
+
+      // Calculate overall CGPA for the student
+      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+
+      // Determine if the student has records for all required semesters
+      const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
+      const hasAllRequiredSemesters = requiredSemesterKeys.every(key => studentSemesterKeys.has(key)); // Use the array version
+
+      allStudentsFullProcessedData[studentRoll] = {
+        name: student.name,
+        overallCgpa: studentOverallCgpa,
+        semesters: processedSemestersForThisStudent,
+        isComplete: hasAllRequiredSemesters,
+        gpaHistory: studentSemesterGpas, // Semester-wise GPA
+        cgpaHistory: studentSemesterCgpas, // Semester-wise CGPA
+      };
+    }
+    return { allStudentsFullProcessedData, requiredSemesterKeys }; // requiredSemesterKeys is now an array
+  }, [calculateGpa, calculateCgpaFromSemesters]);
+
+
+  // New function to calculate overall ranks and chart averages for all students
+  const calculateOverallRankAndChartAverages = useCallback(async () => {
+    console.log("Starting overall rank and chart averages calculation...");
+
+    if (!supabase || typeof supabase.from !== 'function') {
+      console.error('Supabase client is not properly initialized. Check supabaseClient.js and Vercel environment variables.');
+      setOverallStudentRank('Error');
+      setBatchAverageCgpa('Error');
+      return;
+    }
+
+    const allExistingTablesMetadata = await fetchExistingTableNames();
+    const { allStudentsFullProcessedData, requiredSemesterKeys: requiredSemesterKeysArray } = await processAllStudentsSemesterData(allExistingTablesMetadata); // Destructure as array
+
+    const completeStudentsCgpas = []; // For ranking based on overall CGPA
+    const allSemesterLabels = requiredSemesterKeysArray.sort((a, b) => { // Use the array version directly
+        const [yearA, semA] = a.split('-').map(Number);
+        const [yearB, semB] = b.split('-').map(Number);
+        if (yearA !== yearB) return yearA - yearB;
+        return semA - semB;
+    }).map(key => {
+        const [year, sem] = key.split('-').map(Number);
+        return `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+    });
+
+
+    // Prepare data for per-semester averages
+    const semesterWiseGpas = {}; // { '1-1': [], '1-2': [], ... }
+    const semesterWiseCgpas = {}; // { '1-1': [], '1-2': [], ... }
+
+    requiredSemesterKeysArray.forEach(key => { // Use the array version directly
+        semesterWiseGpas[key] = [];
+        semesterWiseCgpas[key] = [];
+    });
+
+    for (const studentRoll in allStudentsFullProcessedData) {
+      const student = allStudentsFullProcessedData[studentRoll];
+      if (student.isComplete) {
+        completeStudentsCgpas.push({
           studentId: studentRoll,
           name: student.name,
-          cgpa: studentCgpa,
-          isComplete: hasAllRequiredSemesters // Mark if student has all required semesters
+          cgpa: student.overallCgpa,
+        });
+
+        // Populate semester-wise GPA/CGPA lists for averages
+        Object.entries(student.semesters).forEach(([semKey, semDetails]) => {
+          if (semDetails.gpa !== undefined) {
+            semesterWiseGpas[semKey]?.push(semDetails.gpa);
+          }
+          if (semDetails.cgpa !== undefined) {
+            semesterWiseCgpas[semKey]?.push(semDetails.cgpa);
+          }
         });
       }
-
-      // Filter for complete students for ranking and batch average
-      const completeStudentsCgpas = allStudentsCgpas.filter(s => s.isComplete);
-      console.log("Complete students for ranking:", completeStudentsCgpas.length);
-
-      // Calculate Batch Average CGPA
-      const totalCgpaSum = completeStudentsCgpas.reduce((sum, s) => sum + s.cgpa, 0);
-      const averageCgpa = completeStudentsCgpas.length > 0 ? (totalCgpaSum / completeStudentsCgpas.length).toFixed(2) : 'N/A';
-      setBatchAverageCgpa(averageCgpa);
-
-
-      // Sort complete students by CGPA to determine rank
-      completeStudentsCgpas.sort((a, b) => b.cgpa - a.cgpa);
-
-      // Assign ranks, handling ties and preparing display string
-      let currentRank = 1;
-      let prevCgpa = -1; // Initialize with a value lower than any possible CGPA
-
-      for (let i = 0; i < completeStudentsCgpas.length; i++) {
-        if (completeStudentsCgpas[i].cgpa < prevCgpa) {
-          currentRank = i + 1;
-        }
-        completeStudentsCgpas[i].rank = currentRank;
-        prevCgpa = completeStudentsCgpas[i].cgpa;
-      }
-
-      // Calculate rank string for the current student
-      const totalCompleteStudents = completeStudentsCgpas.length;
-      const currentStudentRankData = completeStudentsCgpas.find(s => s.studentId === studentId);
-
-      if (currentStudentRankData) {
-        const rankStart = currentStudentRankData.rank;
-        let rankEnd = rankStart; // Initialize rankEnd with rankStart
-
-        // Find the actual last rank in the tied group
-        // Iterate from the current student's position to find the last student with the same CGPA
-        for (let i = completeStudentsCgpas.indexOf(currentStudentRankData); i < completeStudentsCgpas.length; i++) {
-            if (completeStudentsCgpas[i].cgpa === currentStudentRankData.cgpa) {
-                rankEnd = completeStudentsCgpas[i].rank; // This will be the rank of the last student in the tied group
-            } else {
-                break; // Stop if CGPA changes
-            }
-        }
-
-        let rankDisplayString;
-        if (rankStart === rankEnd) {
-          rankDisplayString = `${rankStart} of ${totalCompleteStudents}`;
-        } else {
-          // Corrected to show full range (e.g., 100-108)
-          rankDisplayString = `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
-        }
-        setOverallStudentRank(rankDisplayString);
-
-        // Also update the student's name if it was fetched here and is still the placeholder
-        setStudentData(prevData => {
-            if (prevData && prevData.name === `Student ${studentId}`) {
-                return { ...prevData, name: currentStudentRankData.name };
-            }
-            return prevData;
-        });
-      } else {
-        // If the current student is not in the complete list, they have missing semesters
-        setOverallStudentRank('N/A (Missing Semesters)');
-        // Ensure studentData's overallCgpa is set to N/A if semesters are missing
-        setStudentData(prevData => ({
-          ...prevData,
-          overallCgpa: 'N/A' // Set individual student's CGPA to N/A
-        }));
-      }
-
-      // Get top 5 students from the complete list
-      const top5 = completeStudentsCgpas.slice(0, 5).map(s => ({
-        id: s.studentId,
-        name: s.name,
-        cgpa: s.cgpa,
-        rank: s.rank // Include rank for display if desired
-      }));
-      setTopStudents(top5); // Set new state for top students
-
-      // Get 10 students around the current student (5 before, 5 after)
-      const currentStudentIndex = completeStudentsCgpas.findIndex(s => s.studentId === studentId);
-      if (currentStudentIndex !== -1) {
-        const startIndex = Math.max(0, currentStudentIndex - 5);
-        const endIndex = Math.min(completeStudentsCgpas.length, currentStudentIndex + 5 + 1); // +1 because slice end is exclusive
-        setNearbyStudents(completeStudentsCgpas.slice(startIndex, endIndex));
-      } else {
-        setNearbyStudents([]); // Clear if current student not found in complete list
-      }
-
-
-    } catch (err) {
-      console.error("Error calculating overall ranks:", err);
-      setOverallStudentRank('Error'); // Indicate error for rank
-      setTopStudents([]); // Clear top students on error
-      setNearbyStudents([]); // Clear nearby students on error
-      setBatchAverageCgpa('Error');
     }
-    console.log("Overall rank calculation finished.");
-  }, [studentId, calculateGpa, calculateCgpaFromSemesters]);
+
+    // Sort complete students by CGPA for ranking
+    completeStudentsCgpas.sort((a, b) => b.cgpa - a.cgpa);
+
+    // Assign ranks, handling ties
+    let currentRank = 1;
+    let prevCgpa = -1;
+    for (let i = 0; i < completeStudentsCgpas.length; i++) {
+      if (completeStudentsCgpas[i].cgpa < prevCgpa) {
+        currentRank = i + 1;
+      }
+      completeStudentsCgpas[i].rank = currentRank;
+      prevCgpa = completeStudentsCgpas[i].cgpa;
+    }
+
+    // Calculate rank for the current student
+    const totalCompleteStudents = completeStudentsCgpas.length;
+    const currentStudentRankData = completeStudentsCgpas.find(s => s.studentId === studentId);
+
+    if (currentStudentRankData) {
+      let rankStart = currentStudentRankData.rank;
+      let rankEnd = rankStart;
+      for (let i = completeStudentsCgpas.indexOf(currentStudentRankData); i < completeStudentsCgpas.length; i++) {
+          if (completeStudentsCgpas[i].cgpa === currentStudentRankData.cgpa) {
+              rankEnd = completeStudentsCgpas[i].rank;
+          } else {
+              break;
+          }
+      }
+      let rankDisplayString = (rankStart === rankEnd) ? `${rankStart} of ${totalCompleteStudents}` : `${rankStart}-${rankEnd} of ${totalCompleteStudents}`;
+      setOverallStudentRank(rankDisplayString);
+
+      setStudentData(prevData => {
+          if (prevData && prevData.name === `Student ${studentId}`) {
+              return { ...prevData, name: currentStudentRankData.name };
+          }
+          return prevData;
+      });
+    } else {
+      setOverallStudentRank('N/A (Missing Semesters)');
+      setStudentData(prevData => ({ ...prevData, overallCgpa: 'N/A' }));
+    }
+
+    // Batch Average CGPA
+    const totalCgpaSum = completeStudentsCgpas.reduce((sum, s) => sum + s.cgpa, 0);
+    const averageCgpa = completeStudentsCgpas.length > 0 ? (totalCgpaSum / completeStudentsCgpas.length).toFixed(2) : 'N/A';
+    setBatchAverageCgpa(averageCgpa);
+
+    // Top students list
+    setTopStudents(completeStudentsCgpas.slice(0, 5).map(s => ({
+      id: s.studentId,
+      name: s.name,
+      cgpa: s.cgpa,
+      rank: s.rank
+    })));
+
+    // Nearby students list
+    const currentStudentIndex = completeStudentsCgpas.findIndex(s => s.studentId === studentId);
+    if (currentStudentIndex !== -1) {
+      const startIndex = Math.max(0, currentStudentIndex - 5);
+      const endIndex = Math.min(completeStudentsCgpas.length, currentStudentIndex + 5 + 1);
+      setNearbyStudents(completeStudentsCgpas.slice(startIndex, endIndex));
+    } else {
+      setNearbyStudents([]);
+    }
+
+
+    // Calculate semester-wise Top/Bottom/Batch Averages for charts
+    const numTopBottomStudents = 5; // Number of students to consider for top/bottom average
+
+    const avgGpaHistory = [];
+    const topAvgGpaHistory = [];
+    const bottomAvgGpaHistory = [];
+    const avgCgpaHistory = [];
+    const topAvgCgpaHistory = [];
+    const bottomAvgCgpaHistory = [];
+
+    allSemesterLabels.forEach(label => { // Use allSemesterLabels for iteration order
+      // Find the corresponding semesterKey from the array version
+      const semesterKey = requiredSemesterKeysArray.find(key => {
+        const [year, sem] = key.split('-').map(Number);
+        return label === `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+      });
+
+      // GPA Averages
+      const gpasForSemester = semesterWiseGpas[semesterKey] || [];
+      const sortedGpas = [...gpasForSemester].sort((a, b) => b - a);
+      const avgGpa = sortedGpas.length > 0 ? (gpasForSemester.reduce((sum, g) => sum + g, 0) / gpasForSemester.length).toFixed(2) : 0;
+      const topGpas = sortedGpas.slice(0, numTopBottomStudents);
+      const bottomGpas = sortedGpas.slice(Math.max(0, sortedGpas.length - numTopBottomStudents));
+
+      avgGpaHistory.push(parseFloat(avgGpa));
+      topAvgGpaHistory.push(topGpas.length > 0 ? parseFloat((topGpas.reduce((sum, g) => sum + g, 0) / topGpas.length).toFixed(2)) : 0);
+      bottomAvgGpaHistory.push(bottomGpas.length > 0 ? parseFloat((bottomGpas.reduce((sum, g) => sum + g, 0) / bottomGpas.length).toFixed(2)) : 0);
+
+      // CGPA Averages
+      const cgpasForSemester = semesterWiseCgpas[semesterKey] || [];
+      const sortedCgpas = [...cgpasForSemester].sort((a, b) => b - a);
+      const avgCgpa = sortedCgpas.length > 0 ? (cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length).toFixed(2) : 0;
+      const topCgpas = sortedCgpas.slice(0, numTopBottomStudents);
+      const bottomCgpas = sortedCgpas.slice(Math.max(0, sortedCgpas.length - numTopBottomStudents));
+
+      avgCgpaHistory.push(parseFloat(avgCgpa));
+      topAvgCgpaHistory.push(topCgpas.length > 0 ? parseFloat((topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length).toFixed(2)) : 0);
+      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? parseFloat((bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length).toFixed(2)) : 0);
+    });
+
+    // Prepare student's own GPA and CGPA history for charts
+    const studentGpaHistory = [];
+    const studentCgpaHistory = [];
+    const currentStudentProcessedData = allStudentsFullProcessedData[studentId];
+
+    allSemesterLabels.forEach(label => {
+      const semesterKey = requiredSemesterKeysArray.find(key => { // Use the array version directly
+        const [year, sem] = key.split('-').map(Number);
+        return label === `${year} Year ${sem === 1 ? '1st' : '2nd'} Semester`;
+      });
+      studentGpaHistory.push(currentStudentProcessedData?.gpaHistory?.[semesterKey] || 0);
+      studentCgpaHistory.push(currentStudentProcessedData?.cgpaHistory?.[semesterKey] || 0);
+    });
+
+    // Log chart data before setting state
+    console.log("GPA Chart Data being set:", {
+      labels: allSemesterLabels,
+      datasets: [
+        { label: 'Your GPA', data: studentGpaHistory },
+        { label: 'Top Avg. GPA', data: topAvgGpaHistory },
+        { label: 'Bottom Avg. GPA', data: bottomAvgGpaHistory },
+        { label: 'Batch Avg. GPA', data: avgGpaHistory },
+      ],
+    });
+    console.log("CGPA Chart Data being set:", {
+      labels: allSemesterLabels,
+      datasets: [
+        { label: 'Your CGPA', data: studentCgpaHistory },
+        { label: 'Top Avg. CGPA', data: topAvgCgpaHistory },
+        { label: 'Bottom Avg. CGPA', data: bottomAvgCgpaHistory },
+        { label: 'Batch Avg. CGPA', data: avgCgpaHistory },
+      ],
+    });
+
+
+    // Set GPA Chart Data
+    setGpaChartData({
+      labels: allSemesterLabels,
+      datasets: [
+        {
+          label: 'Your GPA',
+          data: studentGpaHistory,
+          borderColor: 'rgba(0, 123, 255, 1)',
+          backgroundColor: 'rgba(0, 123, 255, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Top Avg. GPA',
+          data: topAvgGpaHistory,
+          borderColor: 'rgba(40, 167, 69, 1)',
+          backgroundColor: 'rgba(40, 167, 69, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Bottom Avg. GPA',
+          data: bottomAvgGpaHistory,
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Batch Avg. GPA', // For general batch average
+          data: avgGpaHistory,
+          borderColor: 'rgba(255, 193, 7, 1)',
+          backgroundColor: 'rgba(255, 193, 7, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    });
+
+    // Set CGPA Chart Data
+    setCgpaChartData({
+      labels: allSemesterLabels,
+      datasets: [
+        {
+          label: 'Your CGPA',
+          data: studentCgpaHistory,
+          borderColor: 'rgba(0, 123, 255, 1)',
+          backgroundColor: 'rgba(0, 123, 255, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Top Avg. CGPA',
+          data: topAvgCgpaHistory,
+          borderColor: 'rgba(40, 167, 69, 1)',
+          backgroundColor: 'rgba(40, 167, 69, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Bottom Avg. CGPA',
+          data: bottomAvgCgpaHistory,
+          borderColor: 'rgba(255, 99, 132, 1)',
+          backgroundColor: 'rgba(255, 99, 132, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Batch Avg. CGPA', // For general batch average
+          data: avgCgpaHistory,
+          borderColor: 'rgba(255, 193, 7, 1)',
+          backgroundColor: 'rgba(255, 193, 7, 0.2)',
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    });
+
+
+    console.log("Overall rank and chart averages calculation finished.");
+  }, [studentId, processAllStudentsSemesterData]);
 
 
   // Effect to trigger initial search on component mount with the default studentId
@@ -592,14 +773,15 @@ export default function ResultAnalysis() {
     if (studentId.trim().length === 10 && !studentData && !loading && !error) {
       fetchAndProcessStudentData();
     }
-  }, [studentId, studentData, loading, error, fetchAndProcessStudentData]); // Added dependencies
+  }, [studentId, studentData, loading, error, fetchAndProcessStudentData]);
 
-  // Trigger overall rank calculation after studentData is loaded
+  // Trigger overall rank and chart average calculation after studentData is loaded
+  // This is the "last working version" pattern for separating data fetching
   useEffect(() => {
     if (studentData) { // Only run if studentData has been successfully fetched
-        calculateOverallRank();
+        calculateOverallRankAndChartAverages();
     }
-  }, [studentData, calculateOverallRank]);
+  }, [studentData, calculateOverallRankAndChartAverages]);
 
 
   const toggleSemesterExpansion = (semesterKey) => {
@@ -607,8 +789,6 @@ export default function ResultAnalysis() {
   };
 
   return (
-    // Removed the 'key' prop from the section to prevent re-mounting on every studentId change
-    // This should fix the input focus issue and potentially help with blank screens.
     <section className="container mx-auto p-4 pt-16 text-white">
       <h1 className="text-3xl font-bold mb-6 text-center">Student Result Analysis</h1>
 
@@ -617,11 +797,11 @@ export default function ResultAnalysis() {
         <div className="flex items-center space-x-4">
           <input
             type="text"
-            placeholder="Enter a 10-digit Student ID (e.g., 2112135101)" // Updated placeholder
+            placeholder="Enter a 10-digit Student ID (e.g., 2112135101)"
             className="p-3 border border-gray-600 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow"
             value={studentId}
             onChange={(e) => setStudentId(e.target.value)}
-            maxLength={10} // Enforce max length
+            maxLength={10}
           />
           <button
             onClick={fetchAndProcessStudentData}
@@ -631,12 +811,10 @@ export default function ResultAnalysis() {
             {loading ? 'Searching...' : 'Show Student Data'}
           </button>
         </div>
-        {/* Display general error messages more prominently */}
         {error && <p className="text-red-500 mt-4 text-center font-bold">{error}</p>}
         {loading && <p className="text-blue-400 mt-4 text-center">Loading student data...</p>}
       </div>
 
-      {/* Conditional rendering based on loading, error, and studentData state */}
       {loading ? (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-blue-400">
           <p>Loading student data...</p>
@@ -692,7 +870,6 @@ export default function ResultAnalysis() {
             <p className="text-gray-300 text-center mb-8">Top student data not available or loading...</p>
           )}
 
-          {/* New section for students before and after the current student */}
           {nearbyStudents.length > 0 && (
             <div className="mt-8">
               <h3 className="text-xl font-semibold mb-4 text-center">Students Around Current Rank</h3>
@@ -710,7 +887,7 @@ export default function ResultAnalysis() {
                     {nearbyStudents.map((student, index) => (
                       <tr key={student.studentId} className={`hover:bg-gray-600 ${student.studentId === studentId ? 'bg-blue-700 font-bold' : ''}`}>
                         <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td> {/* Corrected to student.studentId */}
+                        <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                       </tr>
@@ -721,13 +898,30 @@ export default function ResultAnalysis() {
             </div>
           )}
 
-          <h3 className="text-xl font-semibold mb-4 text-center">GPA/CGPA/YGPA Trend</h3>
-          {studentData.gpaTrend && (
-            <ResultTrendChart
-              labels={studentData.gpaTrend.labels}
-              datasets={studentData.gpaTrend.datasets}
-              title="Student Academic Performance Trend"
-            />
+          {/* GPA Trend Chart (Conditional Rendering) */}
+          {gpaChartData && (
+            <div className="mt-8 p-4 border-2 border-red-500 rounded-lg min-h-[450px]"> {/* Added min-height and border */}
+              <h3 className="text-xl font-semibold mb-4 text-center">GPA Trend (You vs. Batch Averages)</h3>
+              <ResultTrendChart
+                labels={gpaChartData.labels}
+                datasets={gpaChartData.datasets}
+                title="GPA Trend"
+                yAxisLabel="GPA"
+              />
+            </div>
+          )}
+
+          {/* CGPA Trend Chart (Conditional Rendering) */}
+          {cgpaChartData && (
+            <div className="mt-8 p-4 border-2 border-green-500 rounded-lg min-h-[450px]"> {/* Added min-height and border */}
+              <h3 className="text-xl font-semibold mb-4 text-center">CGPA Trend (You vs. Batch Averages)</h3>
+              <ResultTrendChart
+                labels={cgpaChartData.labels}
+                datasets={cgpaChartData.datasets}
+                title="CGPA Trend"
+                yAxisLabel="CGPA"
+              />
+            </div>
           )}
 
           <h3 className="text-xl font-semibold mb-4 text-center mt-8">Semester-wise Details</h3>
@@ -743,7 +937,6 @@ export default function ResultAnalysis() {
                 </tr>
               </thead>
               <tbody>
-                {/* Ensure studentData.semesters is an object before calling Object.entries */}
                 {studentData.semesters && Object.entries(studentData.semesters).map(([semesterKey, sem]) => (
                   <React.Fragment key={semesterKey}>
                     <tr
@@ -783,7 +976,6 @@ export default function ResultAnalysis() {
           </div>
         </div>
       ) : (
-        // This block will render if studentData is null (initial state or no results) and no error is present
         !loading && !error && (
           <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-gray-300">
             <p>Enter a Student ID and click "Show Student Data" to view results.</p>
