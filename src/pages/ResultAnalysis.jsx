@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient'; // Ensure this path is correct
 import ResultTrendChart from '../components/ResultTrendChart';
 import {
   gradeToGpa,
@@ -66,9 +66,10 @@ export default function ResultAnalysis() {
       return;
     }
 
-    // Check if supabase client is initialized
-    if (!supabase) {
-      setError('Supabase client not initialized. Check environment variables.');
+    // Crucial check: Is supabase initialized?
+    if (!supabase || typeof supabase.from !== 'function') {
+      console.error('Supabase client is not properly initialized. Check supabaseClient.js and Vercel environment variables.');
+      setError('Application error: Supabase connection failed. Please contact support.');
       setLoading(false);
       return;
     }
@@ -305,9 +306,9 @@ export default function ResultAnalysis() {
     console.log("Starting overall rank calculation...");
     let allStudentsRawData = {}; // { 'studentId': [{tableName: '...', data: {...}}, ...], ... }
 
-    // Check if supabase client is initialized
-    if (!supabase) {
-      console.error('Supabase client not initialized for rank calculation. Check environment variables.');
+    // Crucial check: Is supabase initialized?
+    if (!supabase || typeof supabase.from !== 'function') {
+      console.error('Supabase client is not properly initialized for rank calculation. Check supabaseClient.js and Vercel environment variables.');
       setOverallStudentRank('Error'); // Indicate error for rank
       return;
     }
@@ -354,6 +355,8 @@ export default function ResultAnalysis() {
               tableName, academicYear, academicSemester, examYear, type, data: studentRecord
             });
           });
+        } else {
+          console.warn(`Query for ${allStudentQueryPromises[index].tableName} failed or returned no data for rank calculation:`, response.reason || 'No data');
         }
       });
       console.log("Raw data collected for all students:", Object.keys(allStudentsRawData).length);
@@ -511,11 +514,13 @@ export default function ResultAnalysis() {
             {loading ? 'Searching...' : 'Show Student Data'}
           </button>
         </div>
-        {error && <p className="text-red-500 mt-4">{error}</p>}
+        {/* Display general error messages more prominently */}
+        {error && <p className="text-red-500 mt-4 text-center font-bold">{error}</p>}
         {loading && <p className="text-blue-400 mt-4 text-center">Loading student data...</p>}
       </div>
 
-      {studentData && (
+      {/* Only render student data section if studentData is available and there's no critical error */}
+      {studentData && !error && (
         <div className="bg-gray-800 p-6 rounded-lg shadow-md">
           <h2 className="text-2xl font-semibold mb-4 text-center">Results for Student ID: {studentData.id} ({studentData.name})</h2>
 
