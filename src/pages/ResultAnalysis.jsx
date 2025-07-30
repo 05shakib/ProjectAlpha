@@ -19,10 +19,10 @@ export default function ResultAnalysis() {
   const [expandedSemester, setExpandedSemester] = useState(null);
 
   // Helper function to calculate GPA for a set of grades
-  const calculateGpa = useCallback((grades) => { // Removed subjectCodes as it's not directly used here
+  const calculateGpa = useCallback((grades) => {
     let totalPoints = 0;
     let totalCredits = 0;
-    Object.values(grades).forEach((gradeLetter) => { // Iterate over values of grades map
+    Object.values(grades).forEach((gradeLetter) => {
       const gradePoint = getGradePoint(gradeLetter);
       const credit = COURSE_CREDITS;
       totalPoints += gradePoint * credit;
@@ -66,6 +66,13 @@ export default function ResultAnalysis() {
       return;
     }
 
+    // Check if supabase client is initialized
+    if (!supabase) {
+      setError('Supabase client not initialized. Check environment variables.');
+      setLoading(false);
+      return;
+    }
+
     // Fetch all existing table names from the metadata table
     const allExistingTablesMetadata = await fetchExistingTableNames();
     console.log("Fetched metadata tables:", allExistingTablesMetadata);
@@ -80,7 +87,7 @@ export default function ResultAnalysis() {
         academicSemester: meta.academic_semester,
         examYear: meta.exam_year,
         type: meta.result_type,
-        promise: supabase.from(meta.table_name).select('*, "Roll no.", Name').eq('"Roll no."', studentId) // FIX: Added "Name" to select
+        promise: supabase.from(meta.table_name).select('*, "Roll no.", Name').eq('"Roll no."', studentId)
       });
     });
 
@@ -106,6 +113,8 @@ export default function ResultAnalysis() {
           if (recordData.Name && studentNameFound === `Student ${studentId}`) {
             studentNameFound = recordData.Name;
           }
+        } else {
+          console.warn(`Query for ${allQueryPromises[index].tableName} failed or returned no data:`, response.reason || 'No data');
         }
       });
       console.log("Successful query results for student:", results);
@@ -296,6 +305,13 @@ export default function ResultAnalysis() {
     console.log("Starting overall rank calculation...");
     let allStudentsRawData = {}; // { 'studentId': [{tableName: '...', data: {...}}, ...], ... }
 
+    // Check if supabase client is initialized
+    if (!supabase) {
+      console.error('Supabase client not initialized for rank calculation. Check environment variables.');
+      setOverallStudentRank('Error'); // Indicate error for rank
+      return;
+    }
+
     const allExistingTablesMetadata = await fetchExistingTableNames();
     const allStudentQueryPromises = [];
 
@@ -451,10 +467,10 @@ export default function ResultAnalysis() {
 
     } catch (err) {
       console.error("Error calculating overall ranks:", err);
-      // Don't set a global error, as this is a secondary calculation
+      setOverallStudentRank('Error'); // Indicate error for rank
     }
     console.log("Overall rank calculation finished.");
-  }, [studentId, calculateGpa, calculateCgpaFromSemesters]); // Dependencies for calculateOverallRank
+  }, [studentId, calculateGpa, calculateCgpaFromSemesters]);
 
 
   useEffect(() => {
@@ -496,6 +512,7 @@ export default function ResultAnalysis() {
           </button>
         </div>
         {error && <p className="text-red-500 mt-4">{error}</p>}
+        {loading && <p className="text-blue-400 mt-4 text-center">Loading student data...</p>}
       </div>
 
       {studentData && (
