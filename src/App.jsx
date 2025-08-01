@@ -4,6 +4,7 @@ import Landing from './pages/Landing';
 import Projects from './pages/Projects';
 import ResultAnalysis from './pages/ResultAnalysis';
 import CourseAnalytics from './pages/CourseAnalytics';
+import GroupAnalysis from './pages/GroupAnalysis';
 
 import './App.css'; // Keep this for any general app styles
 import './index.css'; // Keep this for any global base styles
@@ -21,6 +22,7 @@ function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/result-analysis" element={<ResultAnalysis />} />
             <Route path="/course-analytics" element={<CourseAnalytics />} />
+			<Route path="/group-analysis" element={<GroupAnalysis />} />
           </Routes>
         </main>
       </div>

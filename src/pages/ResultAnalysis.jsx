@@ -10,6 +10,9 @@ import {
   getGradePoint
 } from '../lib/dataUtils';
 
+// No need to import custom CSS file here if using Tailwind exclusively for this component
+// import '../styles/main.css'; // REMOVED: If you are using Tailwind, this import is not needed for this button's styling
+
 export default function ResultAnalysis() {
   const [studentId, setStudentId] = useState('2112135101'); // Default student ID for auto-search
   const [studentData, setStudentData] = useState(null); // Stores actual fetched data
@@ -33,6 +36,13 @@ export default function ResultAnalysis() {
   // New state for expected improvement grades
   const [expectedGrades, setExpectedGrades] = useState({});
 
+  // NEW STATES FOR DEAN'S LISTS
+  const [honoursList, setHonoursList] = useState({ completed: [], potential: [] });
+  const [meritList, setMeritList] = useState([]);
+  const [deansListLoading, setDeansListLoading] = useState(true);
+  const [deansListError, setDeansListError] = useState('');
+
+
   // Helper function to calculate GPA for a set of grades
   const calculateGpa = useCallback((grades) => {
     let totalPoints = 0;
@@ -46,7 +56,7 @@ export default function ResultAnalysis() {
     return totalCredits > 0 ? parseFloat((totalPoints / totalCredits).toFixed(3)) : 0.000;
   }, []);
 
-  // Helper to calculate CGPA from processed semester data
+  // Helper to calculate CGPA from processed semester data (already exists)
   const calculateCgpaFromSemesters = useCallback((semesters) => {
     let overallTotalPoints = 0;
     let overallTotalCredits = 0;
@@ -372,13 +382,13 @@ export default function ResultAnalysis() {
       const [yearA, semA] = a.split('-').map(Number);
       const [yearB, semB] = b.split('-').map(Number);
       if (yearA !== yearB) return yearA - yearB;
-      return semA - semB;
+      return semA - b;
     });
 
 
     let currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 };
     let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-    let lastProcessedYear = null;
+    let lastProcessedYearInLoop = null; // Renamed to avoid conflict
 
     // Process all possible semesters, adding non-existent ones
     for (const semesterKey of allPossibleSemesterKeys) {
@@ -438,9 +448,9 @@ export default function ResultAnalysis() {
       const currentCgpa = calculateCgpaFromSemesters({ current: currentCgpaAccumulator });
 
       // Accumulate for YGPA
-      if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
+      if (lastProcessedYearInLoop === null || lastProcessedYearInLoop !== academicYear) {
         currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-        lastProcessedYear = academicYear;
+        lastProcessedYearInLoop = academicYear;
       }
       currentYearAccumulator.totalPoints += currentSemesterTotalPoints;
       currentYearAccumulator.totalCredits += currentSemesterTotalCredits;
@@ -626,7 +636,7 @@ export default function ResultAnalysis() {
       const processedSemestersForThisStudent = {};
       let currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 };
       let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-      let lastProcessedYear = null;
+      let lastProcessedYearInStudentLoop = null; // Renamed to avoid conflict
 
       // Sort records by academic year and semester for correct CGPA calculation
       const sortedRecords = student.records.sort((a, b) => {
@@ -714,7 +724,7 @@ export default function ResultAnalysis() {
 
       currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 }; // Reset for each student
       currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-      lastProcessedYear = null;
+      lastProcessedYearInStudentLoop = null; // Re-assign, not redeclare
 
       const studentSemesterGpas = {};
       const studentSemesterCgpas = {};
@@ -762,9 +772,9 @@ export default function ResultAnalysis() {
         processedSemestersForThisStudent[semesterKey].cgpa = currentCgpa;
 
 
-        if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
+        if (lastProcessedYearInStudentLoop === null || lastProcessedYearInStudentLoop !== academicYear) {
           currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-          lastProcessedYear = academicYear;
+          lastProcessedYearInStudentLoop = academicYear;
         }
         currentYearAccumulator.totalPoints += semesterTotalPoints;
         currentYearAccumulator.totalCredits += semesterTotalCredits;
@@ -816,7 +826,7 @@ export default function ResultAnalysis() {
     const newSemesters = {};
     let overallTotalPoints = 0;
     let overallTotalCredits = 0;
-    let lastProcessedYear = null;
+    let lastProcessedYearInRecalculate = null; // Renamed to avoid conflict
     let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
 
     const sortedSemesterKeys = Object.keys(baseStudentData.semesters).sort((a, b) => {
@@ -869,9 +879,9 @@ export default function ResultAnalysis() {
         const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
 
         // Accumulate for YGPA
-        if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
+        if (lastProcessedYearInRecalculate === null || lastProcessedYearInRecalculate !== academicYear) {
             currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-            lastProcessedYear = academicYear;
+            lastProcessedYearInRecalculate = academicYear;
         }
         currentYearAccumulator.totalPoints += semesterAdjustedTotalPoints;
         currentYearAccumulator.totalCredits += semesterAdjustedTotalCredits;
@@ -1321,6 +1331,132 @@ export default function ResultAnalysis() {
     }
   }, [simulatedStudentData, requiredSemesterKeysGlobal, setGpaChartData, setCgpaChartData]);
 
+  // NEW FUNCTION: Fetch and process Dean's Lists
+  const fetchAndProcessDeansLists = useCallback(async () => {
+    setDeansListLoading(true);
+    setDeansListError('');
+    setHonoursList({ completed: [], potential: [] });
+    setMeritList([]);
+
+    if (!supabase || typeof supabase.from !== 'function') {
+      console.error('Supabase client is not properly initialized. Check supabaseClient.js and Vercel environment variables.');
+      setDeansListError('Application error: Supabase connection failed. Please contact support.');
+      setDeansListLoading(false);
+      return;
+    }
+
+    if (!allProcessedBatchData || requiredSemesterKeysGlobal.length === 0) {
+        // Wait for allProcessedBatchData to be available from the other useEffect
+        setDeansListLoading(false); // Indicate not loading yet, waiting for batch data
+        return;
+    }
+
+    try {
+      const allStudentsFullProcessedData = allProcessedBatchData;
+      const requiredSemesterKeysArray = requiredSemesterKeysGlobal;
+      const totalSemestersInDegree = 8; // Assuming 4 years * 2 semesters
+
+      const currentHonoursCompleted = [];
+      const currentHonoursPotential = [];
+      const currentMeritList = [];
+
+      for (const studentRoll in allStudentsFullProcessedData) {
+        const student = allStudentsFullProcessedData[studentRoll];
+        const processedSemestersForThisStudent = student.semesters; // Use already processed semesters
+        let currentCgpaAccumulator = { totalPoints: 0, totalCredits: 0 };
+
+        const chronologicalSemesterKeysForStudent = Object.keys(processedSemestersForThisStudent).sort((a, b) => {
+          const [yearA, semA] = a.split('-').map(Number);
+          const [yearB, semB] = b.split('-').map(Number);
+          if (yearA !== yearB) return yearA - yearB;
+          return semA - b;
+        });
+
+        let completedSemestersCount = 0;
+
+        for (const semesterKey of chronologicalSemesterKeysForStudent) {
+          const sem = processedSemestersForThisStudent[semesterKey];
+          if (!sem) continue; // Skip if semester data is unexpectedly missing
+
+          // Check for Dean's Merit List
+          if (sem.gpa === 4.000) {
+            currentMeritList.push({
+              studentId: studentRoll,
+              studentName: student.name,
+              semester: sem.semesterDisplayName || `${semesterKey.split('-')[0]} Year ${semesterKey.split('-')[1] === '1' ? '1st' : '2nd'} Semester`,
+              gpa: sem.gpa.toFixed(3)
+            });
+          }
+
+          currentCgpaAccumulator.totalPoints += sem.totalPoints;
+          currentCgpaAccumulator.totalCredits += sem.totalCredits;
+          completedSemestersCount++;
+        }
+
+        const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(3)) : 0.000;
+
+        // Dean's Honours List Logic
+        const hasCompletedAllSemesters = completedSemestersCount === totalSemestersInDegree;
+
+        if (hasCompletedAllSemesters) {
+          if (studentOverallCgpa >= 3.850) {
+            currentHonoursCompleted.push({
+              studentId: studentRoll,
+              studentName: student.name,
+              cgpa: studentOverallCgpa.toFixed(3)
+            });
+          }
+        } else {
+          // Potential Candidates for Dean's Honours List
+          const semestersRemaining = totalSemestersInDegree - completedSemestersCount;
+
+          if (semestersRemaining > 0) {
+            const totalDegreeCredits = totalSemestersInDegree * COURSES_PER_SEMESTER * COURSE_CREDITS;
+            const targetOverallPoints = 3.850 * totalDegreeCredits;
+            const requiredPointsFromRemaining = targetOverallPoints - currentCgpaAccumulator.totalPoints;
+            const creditsRemaining = semestersRemaining * COURSES_PER_SEMESTER * COURSE_CREDITS;
+
+            if (creditsRemaining > 0) {
+              const requiredAverageGpa = parseFloat((requiredPointsFromRemaining / creditsRemaining).toFixed(3));
+
+              if (requiredAverageGpa <= 4.000 && requiredAverageGpa >= 0) {
+                currentHonoursPotential.push({
+                  studentId: studentRoll,
+                  studentName: student.name,
+                  currentCgpa: studentOverallCgpa.toFixed(3),
+                  requiredAverageGpaForRemainingSemesters: requiredAverageGpa.toFixed(3),
+                  semestersRemaining: semestersRemaining
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Sort lists
+      currentHonoursCompleted.sort((a, b) => b.cgpa - a.cgpa);
+      currentHonoursPotential.sort((a, b) => a.requiredAverageGpaForRemainingSemesters - b.requiredAverageGpaForRemainingSemesters); // Lower required GPA is better
+      currentMeritList.sort((a, b) => a.studentId.localeCompare(b.studentId) || a.semester.localeCompare(b.semester));
+
+      setHonoursList({ completed: currentHonoursCompleted, potential: currentHonoursPotential });
+      setMeritList(currentMeritList);
+
+    } catch (err) {
+      console.error("Error fetching or processing Dean's List data:", err);
+      setDeansListError('Failed to load Dean\'s Lists. Please try again.');
+    } finally {
+      setDeansListLoading(false);
+    }
+  }, [allProcessedBatchData, requiredSemesterKeysGlobal]); // Dependencies for Dean's List fetching
+
+
+  // NEW useEffect: Trigger Dean's List calculation when batch data is ready
+  useEffect(() => {
+    if (allProcessedBatchData && requiredSemesterKeysGlobal.length > 0) {
+      fetchAndProcessDeansLists();
+    }
+  }, [allProcessedBatchData, requiredSemesterKeysGlobal, fetchAndProcessDeansLists]);
+
 
   const handleExpectedGradeChange = (semesterKey, courseCode, value) => {
     const newExpectedGrades = { ...expectedGrades };
@@ -1363,6 +1499,15 @@ export default function ResultAnalysis() {
           </button>
         </div>
         {error && <p className="text-red-500 mt-4 text-center font-bold">{error}</p>}
+        {/* New button for Group Analysis */}
+        <div className="mt-10 text-center"> {/* Changed mt-6 to mt-10 for more space */}
+          <Link
+            to="/group-analysis"
+            className="inline-block px-8 py-4 bg-purple-700 text-white font-bold text-lg rounded-full shadow-lg hover:bg-purple-800 focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50 transition transform hover:scale-105"
+          >
+            Want to see performance of a group of your choice?
+          </Link>
+        </div>
       </div>
 
       {/* Consolidated Loading, Error, and Data Display */}
@@ -1579,6 +1724,117 @@ export default function ResultAnalysis() {
           </div>
         )
       )}
+
+      {/* Dean's Lists Section */}
+      <div className="mt-12">
+        <h2 className="text-3xl font-bold mb-8 text-center">Dean's Lists</h2>
+        {deansListLoading ? (
+          <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-blue-400">
+            <p>Loading Dean's Lists data...</p>
+          </div>
+        ) : deansListError ? (
+          <div className="bg-gray-800 p-6 rounded-lg shadow-md text-center text-red-500">
+            <p>{deansListError}</p>
+          </div>
+        ) : (
+          <>
+            {/* Dean's Honours List */}
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md mb-8">
+              <h3 className="text-2xl font-semibold mb-4 text-center text-yellow-400">Dean's Honours List 🏆</h3>
+              <p className="text-gray-300 mb-4 text-center">Recognizes exceptional overall academic performance.</p>
+
+              <h4 className="text-xl font-semibold mb-3 text-green-300">Completed Students (CGPA ≥ 3.850)</h4>
+              {honoursList.completed.length > 0 ? (
+                <div className="overflow-x-auto mb-6">
+                  <table className="min-w-full bg-gray-700 rounded-lg text-left text-white">
+                    <thead>
+                      <tr>
+                        <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Name</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Overall CGPA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {honoursList.completed.map((student) => (
+                        <tr key={student.studentId} className="hover:bg-gray-600">
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentName}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-center mb-6">No completed students currently qualify for the Dean's Honours List.</p>
+              )}
+
+              <h4 className="text-xl font-semibold mb-3 text-blue-300">Potential Candidates (Can achieve CGPA ≥ 3.850)</h4>
+              {honoursList.potential.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg text-left text-white">
+                    <thead>
+                      <tr>
+                        <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Name</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Current CGPA</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Req. Avg. GPA (Remaining)</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Semesters Remaining</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {honoursList.potential.map((student) => (
+                        <tr key={student.studentId} className="hover:bg-gray-600">
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentName}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.currentCgpa}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.requiredAverageGpaForRemainingSemesters}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.semestersRemaining}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-center">No potential candidates identified for the Dean's Honours List.</p>
+              )}
+            </div>
+
+            {/* Dean's Merit List */}
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md mt-8">
+              <h3 className="text-2xl font-semibold mb-4 text-center text-purple-400">Dean's Merit List ✨</h3>
+              <p className="text-gray-300 mb-4 text-center">Acknowledges perfect academic standing in any single semester (GPA = 4.000).</p>
+
+              {meritList.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg text-left text-white">
+                    <thead>
+                      <tr>
+                        <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Name</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Semester</th>
+                        <th className="py-3 px-4 border-b border-gray-600">GPA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meritList.map((student, index) => (
+                        <tr key={`${student.studentId}-${student.semester}-${index}`} className="hover:bg-gray-600">
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.studentName}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.semester}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.gpa}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-center">No students currently qualify for the Dean's Merit List.</p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Course Analytics Button at the very bottom */}
       <div className="mt-20 text-center"> {/* Increased top margin to mt-20 */}
