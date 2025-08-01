@@ -1503,7 +1503,7 @@ export default function ResultAnalysis() {
         <div className="mt-10 text-center"> {/* Changed mt-6 to mt-10 for more space */}
           <Link
             to="/group-analysis"
-            className="inline-block px-8 py-4 bg-purple-700 text-white font-bold text-lg rounded-full shadow-lg hover:bg-purple-800 focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50 transition transform hover:scale-105"
+            className="inline-block px-8 py-4 bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-xl rounded-full shadow-lg hover:from-purple-800 hover:to-indigo-800 focus:outline-none focus:ring-4 focus:ring-purple-500 focus:ring-opacity-50 transition transform hover:scale-105 active:scale-95"
           >
             Want to see performance of a group of your choice?
           </Link>
@@ -1725,6 +1725,16 @@ export default function ResultAnalysis() {
         )
       )}
 
+      {/* Course Analytics Button moved here */}
+      <div className="mt-12 text-center">
+        <Link
+          to="/course-analytics"
+          className="inline-block px-8 py-4 bg-gradient-to-r from-blue-700 to-cyan-700 text-white font-bold text-xl rounded-full shadow-lg hover:from-blue-800 hover:to-cyan-800 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition transform hover:scale-105 active:scale-95"
+        >
+          Go to Course Analytics
+        </Link>
+      </div>
+
       {/* Dean's Lists Section */}
       <div className="mt-12">
         <h2 className="text-3xl font-bold mb-8 text-center">Dean's Lists</h2>
@@ -1834,16 +1844,6 @@ export default function ResultAnalysis() {
             </div>
           </>
         )}
-      </div>
-
-      {/* Course Analytics Button at the very bottom */}
-      <div className="mt-20 text-center"> {/* Increased top margin to mt-20 */}
-        <Link
-          to="/course-analytics"
-          className="inline-block px-8 py-4 bg-gray-900 text-blue-400 font-bold text-2xl rounded-full shadow-lg border-4 border-blue-600 hover:bg-gray-700 hover:text-blue-200 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50 transition transform hover:scale-105"
-        >
-          Go to Course Analytics
-        </Link>
       </div>
     </section>
   );
