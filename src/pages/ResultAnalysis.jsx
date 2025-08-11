@@ -465,6 +465,9 @@ export default function ResultAnalysis() {
         courseDetails,
         totalPoints: currentSemesterTotalPoints,
         totalCredits: currentSemesterTotalCredits,
+        // Ensure examYear and type are carried over for Dean's List logic
+        examYear: processedRawStudentRecords[semesterKey]?.examYear || null,
+        type: processedRawStudentRecords[semesterKey]?.type || null,
       };
 
       studentGpaHistory.push(semesterGpa);
@@ -1379,12 +1382,19 @@ export default function ResultAnalysis() {
           if (!sem) continue; // Skip if semester data is unexpectedly missing
 
           // Check for Dean's Merit List
-          if (sem.gpa === 4.000) {
+          // Only include regular results (type === 'R') with GPA 4.000
+          if (sem.gpa === 4.000 && sem.type === 'R') {
+            const [academicYear, academicSemester] = semesterKey.split('-').map(Number);
+            const session = parseInt(studentRoll.substring(0, 2), 10); // Extract session from student ID
+
             currentMeritList.push({
               studentId: studentRoll,
               studentName: student.name,
-              semester: sem.semesterDisplayName || `${semesterKey.split('-')[0]} Year ${semesterKey.split('-')[1] === '1' ? '1st' : '2nd'} Semester`,
-              gpa: sem.gpa.toFixed(3)
+              academicYear: academicYear,
+              academicSemester: academicSemester,
+              examYear: sem.examYear, // Use the examYear from the semester record
+              session: session,
+              // gpa: sem.gpa.toFixed(3) // GPA is not displayed, but can be kept for internal logic
             });
           }
 
@@ -1436,7 +1446,20 @@ export default function ResultAnalysis() {
       // Sort lists
       currentHonoursCompleted.sort((a, b) => b.cgpa - a.cgpa);
       currentHonoursPotential.sort((a, b) => a.requiredAverageGpaForRemainingSemesters - b.requiredAverageGpaForRemainingSemesters); // Lower required GPA is better
-      currentMeritList.sort((a, b) => a.studentId.localeCompare(b.studentId) || a.semester.localeCompare(b.semester));
+      
+      // Sort Dean's Merit List as per requirements:
+      // 1. Semester (1st to 4th) -> academicYear then academicSemester (Ascending)
+      // 2. Exam Year (Ascending)
+      // 3. Session (Descending)
+      // 4. Roll (Ascending)
+      currentMeritList.sort((a, b) => {
+        if (a.academicYear !== b.academicYear) return a.academicYear - b.academicYear;
+        if (a.academicSemester !== b.academicSemester) return a.academicSemester - b.academicSemester;
+        if (a.examYear !== b.examYear) return a.examYear - b.examYear;
+        if (a.session !== b.session) return b.session - a.session; // Descending session
+        return a.studentId.localeCompare(b.studentId); // Ascending roll (studentId)
+      });
+
 
       setHonoursList({ completed: currentHonoursCompleted, potential: currentHonoursPotential });
       setMeritList(currentMeritList);
@@ -1823,16 +1846,16 @@ export default function ResultAnalysis() {
                         <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
                         <th className="py-3 px-4 border-b border-gray-600">Name</th>
                         <th className="py-3 px-4 border-b border-gray-600">Semester</th>
-                        <th className="py-3 px-4 border-b border-gray-600">GPA</th>
+                        <th className="py-3 px-4 border-b border-gray-600">Exam Year</th> {/* Changed from GPA */}
                       </tr>
                     </thead>
                     <tbody>
                       {meritList.map((student, index) => (
-                        <tr key={`${student.studentId}-${student.semester}-${index}`} className="hover:bg-gray-600">
+                        <tr key={`${student.studentId}-${student.academicYear}-${student.academicSemester}-${index}`} className="hover:bg-gray-600">
                           <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
                           <td className="py-2 px-4 border-b border-gray-600">{student.studentName}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{student.semester}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{student.gpa}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{`${student.academicYear} Year ${student.academicSemester === 1 ? '1st' : '2nd'} Semester`}</td>
+                          <td className="py-2 px-4 border-b border-gray-600">{student.examYear}</td> {/* Display Exam Year */}
                         </tr>
                       ))}
                     </tbody>

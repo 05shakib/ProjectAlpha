@@ -382,93 +382,6 @@ const fetchAndProcessSingleStudentData = async (studentIdToFetch) => {
   };
 };
 
-// Function to recalculate student's results based on expected grades
-const recalculateStudentResults = (baseStudentData, currentExpectedGrades) => {
-  if (!baseStudentData || !baseStudentData.semesters) return null;
-
-  const newSemesters = {};
-  let overallTotalPoints = 0;
-  let overallTotalCredits = 0;
-  let lastProcessedYearInRecalculate = null;
-  let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-
-  const sortedSemesterKeys = Object.keys(baseStudentData.semesters).sort((a, b) => {
-      const [yearA, semA] = a.split('-').map(Number);
-      const [yearB, semB] = b.split('-').map(Number);
-      if (yearA !== yearB) return yearA - yearB;
-      return semA - b;
-  });
-
-  for (const semesterKey of sortedSemesterKeys) {
-      const originalSem = baseStudentData.semesters[semesterKey];
-      if (!originalSem) {
-          continue;
-      }
-      const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
-
-      let semesterAdjustedTotalPoints = 0;
-      let semesterAdjustedTotalCredits = 0;
-      const newCourseDetails = originalSem.courseDetails.map(course => {
-          // Key now includes student ID
-          const expectedGradeKey = `${baseStudentData.id}-${semesterKey}-${course.courseCode}`;
-          const expectedGradeLetter = currentExpectedGrades[expectedGradeKey];
-
-          let gradeToUse = course.gradeLetter;
-          let gradePointToUse = getGradePoint(course.gradeLetter);
-
-          if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== undefined &&
-             (getGradePoint(expectedGradeLetter) > gradePointToUse || course.originalGradeLetter === 'N/A')) {
-              gradeToUse = expectedGradeLetter;
-              gradePointToUse = getGradePoint(expectedGradeLetter);
-          }
-
-          semesterAdjustedTotalPoints += gradePointToUse * COURSE_CREDITS;
-          semesterAdjustedTotalCredits += COURSE_CREDITS;
-
-          return {
-              ...course,
-              gradeLetter: gradeToUse,
-              gradePoint: gradePointToUse
-          };
-      });
-
-      const newSemesterGpa = semesterAdjustedTotalCredits > 0 ? parseFloat((semesterAdjustedTotalPoints / semesterAdjustedTotalCredits).toFixed(3)) : 0.000;
-
-      overallTotalPoints += semesterAdjustedTotalPoints;
-      overallTotalCredits += semesterAdjustedTotalCredits;
-      const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
-
-      if (lastProcessedYearInRecalculate === null || lastProcessedYearInRecalculate !== academicYear) {
-          currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
-          lastProcessedYearInRecalculate = academicYear;
-      }
-      currentYearAccumulator.totalPoints += semesterAdjustedTotalPoints;
-      currentYearAccumulator.totalCredits += semesterAdjustedTotalCredits;
-      const newCurrentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
-
-
-      newSemesters[semesterKey] = {
-          ...originalSem,
-          gpa: newSemesterGpa,
-          cgpa: newCurrentCgpa,
-          ygpa: newCurrentYgpa,
-          courseDetails: newCourseDetails,
-          totalPoints: semesterAdjustedTotalPoints,
-          totalCredits: semesterAdjustedTotalCredits,
-      };
-  }
-
-  const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
-
-  return {
-      ...baseStudentData,
-      semesters: newSemesters,
-      overallCgpa: newOverallCgpa,
-      gpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.gpa || 0),
-      cgpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.cgpa || 0),
-  };
-};
-
 
 export default function GroupAnalysis() {
   // State for multiple student IDs for group analysis inputs
@@ -496,6 +409,95 @@ export default function GroupAnalysis() {
 
   // Global required semester keys for chart labels (fetched once)
   const [requiredSemesterKeysGlobal, setRequiredSemesterKeysGlobal] = useState([]);
+
+  // Function to recalculate student's results based on expected grades
+  // MOVED INSIDE THE COMPONENT to resolve Invalid Hook Call
+  const recalculateStudentResults = useCallback((baseStudentData, currentExpectedGrades) => {
+    if (!baseStudentData || !baseStudentData.semesters) return null;
+
+    const newSemesters = {};
+    let overallTotalPoints = 0;
+    let overallTotalCredits = 0;
+    let lastProcessedYearInRecalculate = null;
+    let currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
+
+    const sortedSemesterKeys = Object.keys(baseStudentData.semesters).sort((a, b) => {
+        const [yearA, semA] = a.split('-').map(Number);
+        const [yearB, semB] = b.split('-').map(Number);
+        if (yearA !== yearB) return yearA - yearB;
+        return semA - b;
+    });
+
+    for (const semesterKey of sortedSemesterKeys) {
+        const originalSem = baseStudentData.semesters[semesterKey];
+        if (!originalSem) {
+            continue;
+        }
+        const [academicYear, academicSemesterNum] = semesterKey.split('-').map(Number);
+
+        let semesterAdjustedTotalPoints = 0;
+        let semesterAdjustedTotalCredits = 0;
+        const newCourseDetails = originalSem.courseDetails.map(course => {
+            // Key now includes student ID
+            const expectedGradeKey = `${baseStudentData.id}-${semesterKey}-${course.courseCode}`;
+            const expectedGradeLetter = currentExpectedGrades[expectedGradeKey];
+
+            let gradeToUse = course.gradeLetter;
+            let gradePointToUse = getGradePoint(course.gradeLetter);
+
+            if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== undefined &&
+               (getGradePoint(expectedGradeLetter) > gradePointToUse || course.originalGradeLetter === 'N/A')) {
+                gradeToUse = expectedGradeLetter;
+                gradePointToUse = getGradePoint(expectedGradeLetter);
+            }
+
+            semesterAdjustedTotalPoints += gradePointToUse * COURSE_CREDITS;
+            semesterAdjustedTotalCredits += COURSE_CREDITS;
+
+            return {
+                ...course,
+                gradeLetter: gradeToUse,
+                gradePoint: gradePointToUse
+            };
+        });
+
+        const newSemesterGpa = semesterAdjustedTotalCredits > 0 ? parseFloat((semesterAdjustedTotalPoints / semesterAdjustedTotalCredits).toFixed(3)) : 0.000;
+
+        overallTotalPoints += semesterAdjustedTotalPoints;
+        overallTotalCredits += semesterAdjustedTotalCredits;
+        const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
+
+        if (lastProcessedYearInRecalculate === null || lastProcessedYearInRecalculate !== academicYear) {
+            currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
+            lastProcessedYearInRecalculate = academicYear;
+        }
+        currentYearAccumulator.totalPoints += semesterAdjustedTotalPoints;
+        currentYearAccumulator.totalCredits += semesterAdjustedTotalCredits;
+        const newCurrentYgpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(3)) : 0.000;
+
+
+        newSemesters[semesterKey] = {
+            ...originalSem,
+            gpa: newSemesterGpa,
+            cgpa: newCurrentCgpa,
+            ygpa: newCurrentYgpa,
+            courseDetails: newCourseDetails,
+            totalPoints: semesterAdjustedTotalPoints,
+            totalCredits: semesterAdjustedTotalCredits,
+        };
+    }
+
+    const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(3)) : 0.000;
+
+    return {
+        ...baseStudentData,
+        semesters: newSemesters,
+        overallCgpa: newOverallCgpa,
+        gpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.gpa || 0),
+        cgpaHistory: sortedSemesterKeys.map(key => newSemesters[key]?.cgpa || 0),
+    };
+  }, [calculateCgpaFromSemesters, calculateYgpaFromYears]); // Dependencies for useCallback
+
 
   // Fetch global required semester keys on mount
   useEffect(() => {
@@ -586,9 +588,40 @@ export default function GroupAnalysis() {
       setError(`Errors fetching data: ${errors.join('; ')}`);
     }
 
-    setGroupStudentData(processedData);
+    // Calculate GPA Standard Deviation for each student
+    const studentsWithStdDev = processedData.map(student => {
+      const gpasForStdDev = Object.values(student.semesters).map(sem => sem.gpa);
+      let gpaStandardDeviation = 0;
+      if (gpasForStdDev.length > 1) {
+        const meanGpa = gpasForStdDev.reduce((sum, gpa) => sum + gpa, 0) / gpasForStdDev.length;
+        const sumOfSquaredDifferences = gpasForStdDev.reduce((sum, gpa) => sum + Math.pow(gpa - meanGpa, 2), 0);
+        gpaStandardDeviation = parseFloat(Math.sqrt(sumOfSquaredDifferences / (gpasForStdDev.length - 1)).toFixed(3));
+      }
+      // Extract session from student ID (first two digits)
+      const session = parseInt(student.id.substring(0, 2), 10);
+
+      return {
+        ...student,
+        gpaStandardDeviation: gpaStandardDeviation,
+        session: session,
+      };
+    });
+
+    // Apply the new sorting logic: CGPA (desc) > Std Dev (asc) > Session (asc) > Roll (asc)
+    studentsWithStdDev.sort((a, b) => {
+      // 1. CGPA (descending)
+      if (b.overallCgpa !== a.overallCgpa) return b.overallCgpa - a.overallCgpa;
+      // 2. GPA Standard Deviation (ascending)
+      if (a.gpaStandardDeviation !== b.gpaStandardDeviation) return a.gpaStandardDeviation - b.gpaStandardDeviation;
+      // 3. Session (ascending)
+      if (a.session !== b.session) return a.session - b.session;
+      // 4. Student ID (Roll) (ascending)
+      return a.id.localeCompare(b.id);
+    });
+
+    setGroupStudentData(studentsWithStdDev);
     setLoading(false);
-  }, [studentInputs]);
+  }, [studentInputs, recalculateStudentResults]);
 
 
   // Effect to update group chart data when groupStudentData changes
@@ -659,7 +692,7 @@ export default function GroupAnalysis() {
         datasets: generateGroupDatasets('cgpa'),
       });
     }
-  }, [groupStudentData, requiredSemesterKeysGlobal, expectedGrades, recalculateStudentResults]); // Added expectedGrades and recalculateStudentResults as dependencies
+  }, [groupStudentData, requiredSemesterKeysGlobal, expectedGrades, recalculateStudentResults]);
 
 
   const handleExpectedGradeChange = (studentId, semesterKey, courseCode, value) => {
@@ -767,6 +800,8 @@ export default function GroupAnalysis() {
                   <th className="py-3 px-4 border-b border-gray-600">Student ID</th>
                   <th className="py-3 px-4 border-b border-gray-600">Name</th>
                   <th className="py-3 px-4 border-b border-gray-600">Overall CGPA</th>
+                  <th className="py-3 px-4 border-b border-gray-600">Std. Dev.</th> {/* Added Std. Dev. header */}
+                  <th className="py-3 px-4 border-b border-gray-600">Session</th> {/* Added Session header */}
                   <th className="py-3 px-4 border-b border-gray-600">Actions</th>
                 </tr>
               </thead>
@@ -778,6 +813,8 @@ export default function GroupAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.overallCgpa.toFixed(3)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation.toFixed(3)}</td> {/* Display Std. Dev. */}
+                      <td className="py-2 px-4 border-b border-gray-600">{student.session}</td> {/* Display Session */}
                       <td className="py-2 px-4 border-b border-gray-600">
                         <button
                           onClick={() => toggleStudentSection(student.id)}
