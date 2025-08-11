@@ -1058,7 +1058,7 @@ export default function GroupAnalysis() {
       {/* Back to Single Student Analysis Button */}
       <div className="mt-12 text-center">
         <Link
-          to="/"
+          to="/result-analysis"
           className="inline-block px-8 py-4 bg-gradient-to-r from-green-700 to-lime-700 text-white font-bold text-xl rounded-full shadow-lg hover:from-green-800 hover:to-lime-800 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50 transition transform hover:scale-105 active:scale-95"
         >
           Back to Single Student Analysis
