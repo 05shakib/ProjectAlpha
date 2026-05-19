@@ -79,3 +79,71 @@ export const parseCourseCode = (courseCode) => {
 
 // Helper to get the grade point from a letter grade
 export const getGradePoint = (gradeLetter) => gradeToGpa[gradeLetter] || 0.00;
+
+/**
+ * Calculates Standard Competition Rankings (1, 2, 2, 4) for a cohort.
+ * @param {Array} students - Array of student data objects.
+ * @param {string} gpaKey - The object key containing the CGPA (default: 'overallCgpa').
+ * @returns {Array} - New array sorted by CGPA descending with a 'rank' property added.
+ */
+export const calculateStandardRankings = (students, gpaKey = 'overallCgpa') => {
+  if (!students || students.length === 0) return [];
+
+  // Create a shallow copy and sort by CGPA descending
+  const sorted = [...students].sort((a, b) => parseFloat(b[gpaKey]) - parseFloat(a[gpaKey]));
+
+  let currentRank = 1;
+  let previousCgpa = null;
+
+  return sorted.map((student, index) => {
+    const currentCgpa = parseFloat(student[gpaKey]);
+
+    // If CGPA differs from the peer above, the rank jumps to the 1-based array index position
+    if (currentCgpa !== previousCgpa) {
+      currentRank = index + 1;
+    }
+    previousCgpa = currentCgpa;
+
+    return {
+      ...student,
+      rank: currentRank,
+      // Normalize the ID property so both Top & Nearby tables can render without key errors
+      id: student.id || student.studentId || student.roll,
+      studentId: student.studentId || student.id || student.roll
+    };
+  });
+};
+
+/**
+ * Fetches top students, dynamically expanding past the limit if edge ties exist.
+ */
+export const getTopStudentsWithTies = (rankedStudents, targetLimit = 5) => {
+  if (!rankedStudents || rankedStudents.length === 0) return [];
+  if (rankedStudents.length <= targetLimit) return rankedStudents;
+
+  // Find the rank value at the exact cutoff index (e.g., index 4 for Top 5)
+  const edgeIndex = targetLimit - 1;
+  const edgeRank = rankedStudents[edgeIndex].rank;
+
+  // Filter to keep everyone who matches or beats this rank
+  return rankedStudents.filter(student => student.rank <= edgeRank);
+};
+
+/**
+ * Fetches contextual peer windows, naturally absorbing multi-student boundary ties.
+ */
+export const getNearbyStudentsWithTies = (rankedStudents, currentStudentId, range = 5) => {
+  if (!rankedStudents || rankedStudents.length === 0) return [];
+
+  const centerStudent = rankedStudents.find(
+    s => String(s.studentId) === String(currentStudentId)
+  );
+
+  if (!centerStudent) return [];
+
+  const centerRank = centerStudent.rank;
+  const minRank = Math.max(1, centerRank - range);
+  const maxRank = centerRank + range;
+
+  return rankedStudents.filter(student => student.rank >= minRank && student.rank <= maxRank);
+};

@@ -16,17 +16,18 @@ export default function StudentRankings({ topStudents, nearbyStudents, currentSt
                 <th className="py-3 px-4 border-b border-gray-600">Std. Dev.</th>
               </tr>
             </thead>
-            <tbody>
-              {topStudents.map((student) => (
-                <tr key={student.id} className="hover:bg-gray-600">
-                  <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
-                  <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
-                  <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                  <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
-                  <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation}</td>
-                </tr>
-              ))}
-            </tbody>
+// For the Top Students table mapping:
+			<tbody>
+				{topStudents.map((student) => (
+					<tr key={student.studentId} className="hover:bg-gray-600">
+						<td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
+						<td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
+						<td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
+						<td className="py-2 px-4 border-b border-gray-600">{student.cgpa || student.overallCgpa}</td>
+						<td className="py-2 px-4 border-b border-gray-600">{student.stdDev || 'N/A'}</td>
+					</tr>
+				))}
+			</tbody>
           </table>
         </div>
       ) : (
@@ -47,17 +48,18 @@ export default function StudentRankings({ topStudents, nearbyStudents, currentSt
                   <th className="py-3 px-4 border-b border-gray-600">Std. Dev.</th>
                 </tr>
               </thead>
-              <tbody>
-                {nearbyStudents.map((student) => (
-                  <tr key={student.studentId} className={`hover:bg-gray-600 ${student.studentId === currentStudentId ? 'bg-blue-700 font-bold' : ''}`}>
-                    <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
-                    <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
-                    <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                    <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
-                    <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation}</td>
-                  </tr>
-                ))}
-              </tbody>
+// For the Nearby Students table mapping:
+				<tbody>
+					{nearbyStudents.map((student) => (
+						<tr key={student.studentId} className={`hover:bg-gray-600 ${String(student.studentId) === String(currentStudentId) ? 'bg-blue-700 font-bold' : ''}`}>
+						  <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
+						  <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
+						  <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
+						  <td className="py-2 px-4 border-b border-gray-600">{student.cgpa || student.overallCgpa}</td>
+						  <td className="py-2 px-4 border-b border-gray-600">{student.stdDev || 'N/A'}</td>
+						</tr>
+					))}
+				</tbody>
             </table>
           </div>
         </div>
