@@ -80,70 +80,136 @@ export const parseCourseCode = (courseCode) => {
 // Helper to get the grade point from a letter grade
 export const getGradePoint = (gradeLetter) => gradeToGpa[gradeLetter] || 0.00;
 
+// Helper to normalize CGPA values safely for ranking comparisons
+const getRankScore = (student, scoreKey = 'overallCgpa') => {
+  const score = Number(student?.[scoreKey]);
+  return Number.isFinite(score) ? score : 0;
+};
+
+// Helper to keep ordering stable when CGPA is tied
+const compareStudentIdentity = (a, b) => {
+  const aId = String(a?.id ?? a?.studentId ?? '');
+  const bId = String(b?.id ?? b?.studentId ?? '');
+  return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' });
+};
+
 /**
- * Calculates Standard Competition Rankings (1, 2, 2, 4) for a cohort.
- * @param {Array} students - Array of student data objects.
- * @param {string} gpaKey - The object key containing the CGPA (default: 'overallCgpa').
- * @returns {Array} - New array sorted by CGPA descending with a 'rank' property added.
+ * Applies Standard Competition Ranking.
+ * Example: CGPAs [4.00, 3.90, 3.90, 3.80] => ranks [1, 2, 2, 4].
+ *
+ * The original input array and objects are not mutated.
+ *
+ * @param {Array<object>} students Array of student objects.
+ * @param {string} [scoreKey='overallCgpa'] Numeric field used for ranking.
+ * @returns {Array<object>} Sorted copy of students with a rank field added.
  */
-export const calculateStandardRankings = (students, gpaKey = 'overallCgpa') => {
-  if (!students || students.length === 0) return [];
+export const calculateStandardCompetitionRanks = (students = [], scoreKey = 'overallCgpa') => {
+  const sortedStudents = [...students]
+    .filter(Boolean)
+    .sort((a, b) => {
+      const scoreDifference = getRankScore(b, scoreKey) - getRankScore(a, scoreKey);
+      return scoreDifference !== 0 ? scoreDifference : compareStudentIdentity(a, b);
+    });
 
-  // Create a shallow copy and sort by CGPA descending
-  const sorted = [...students].sort((a, b) => parseFloat(b[gpaKey]) - parseFloat(a[gpaKey]));
+  let currentRank = 0;
+  let previousScore = null;
 
-  let currentRank = 1;
-  let previousCgpa = null;
+  return sortedStudents.map((student, index) => {
+    const currentScore = getRankScore(student, scoreKey);
 
-  return sorted.map((student, index) => {
-    const currentCgpa = parseFloat(student[gpaKey]);
-
-    // If CGPA differs from the peer above, the rank jumps to the 1-based array index position
-    if (currentCgpa !== previousCgpa) {
+    if (index === 0) {
+      currentRank = 1;
+    } else if (currentScore !== previousScore) {
       currentRank = index + 1;
     }
-    previousCgpa = currentCgpa;
+
+    previousScore = currentScore;
 
     return {
       ...student,
-      rank: currentRank,
-      // Normalize the ID property so both Top & Nearby tables can render without key errors
-      id: student.id || student.studentId || student.roll,
-      studentId: student.studentId || student.id || student.roll
+      rank: currentRank
     };
   });
 };
 
 /**
- * Fetches top students, dynamically expanding past the limit if edge ties exist.
+ * Returns the top N students, expanding beyond N when the boundary student is tied.
+ * Example: if the 5th and 6th students share the same CGPA, both are returned.
+ *
+ * @param {Array<object>} rankedStudents Students already ranked/sorted.
+ * @param {number} [limit=5] Base limit before tie expansion.
+ * @param {string} [scoreKey='overallCgpa'] Numeric field used for tie comparison.
+ * @returns {Array<object>}
  */
-export const getTopStudentsWithTies = (rankedStudents, targetLimit = 5) => {
-  if (!rankedStudents || rankedStudents.length === 0) return [];
-  if (rankedStudents.length <= targetLimit) return rankedStudents;
+export const getTopStudentsWithTieExpansion = (rankedStudents = [], limit = 5, scoreKey = 'overallCgpa') => {
+  if (!Array.isArray(rankedStudents) || rankedStudents.length <= limit) {
+    return rankedStudents || [];
+  }
 
-  // Find the rank value at the exact cutoff index (e.g., index 4 for Top 5)
-  const edgeIndex = targetLimit - 1;
-  const edgeRank = rankedStudents[edgeIndex].rank;
+  const boundaryScore = getRankScore(rankedStudents[limit - 1], scoreKey);
+  let endIndex = limit - 1;
 
-  // Filter to keep everyone who matches or beats this rank
-  return rankedStudents.filter(student => student.rank <= edgeRank);
+  while (
+    endIndex + 1 < rankedStudents.length &&
+    getRankScore(rankedStudents[endIndex + 1], scoreKey) === boundaryScore
+  ) {
+    endIndex += 1;
+  }
+
+  return rankedStudents.slice(0, endIndex + 1);
 };
 
 /**
- * Fetches contextual peer windows, naturally absorbing multi-student boundary ties.
+ * Returns a current-student ranking window, expanding the top/bottom edges when
+ * the edge student is tied with students just outside the normal display range.
+ *
+ * @param {Array<object>} rankedStudents Students already ranked/sorted.
+ * @param {string|number} currentStudentId Current student's roll/student ID.
+ * @param {number} [above=5] Number of rows above current student before tie expansion.
+ * @param {number} [below=5] Number of rows below current student before tie expansion.
+ * @param {string} [scoreKey='overallCgpa'] Numeric field used for tie comparison.
+ * @returns {Array<object>}
  */
-export const getNearbyStudentsWithTies = (rankedStudents, currentStudentId, range = 5) => {
-  if (!rankedStudents || rankedStudents.length === 0) return [];
+export const getStudentsAroundRankWithTieExpansion = (
+  rankedStudents = [],
+  currentStudentId,
+  above = 5,
+  below = 5,
+  scoreKey = 'overallCgpa'
+) => {
+  if (!Array.isArray(rankedStudents) || rankedStudents.length === 0) {
+    return [];
+  }
 
-  const centerStudent = rankedStudents.find(
-    s => String(s.studentId) === String(currentStudentId)
-  );
+  const normalizedCurrentStudentId = String(currentStudentId ?? '');
+  const currentIndex = rankedStudents.findIndex(student => {
+    const possibleId = String(student?.id ?? student?.studentId ?? '');
+    return possibleId === normalizedCurrentStudentId;
+  });
 
-  if (!centerStudent) return [];
+  if (currentIndex === -1) {
+    return [];
+  }
 
-  const centerRank = centerStudent.rank;
-  const minRank = Math.max(1, centerRank - range);
-  const maxRank = centerRank + range;
+  let startIndex = Math.max(0, currentIndex - above);
+  let endIndex = Math.min(rankedStudents.length - 1, currentIndex + below);
 
-  return rankedStudents.filter(student => student.rank >= minRank && student.rank <= maxRank);
+  const topBoundaryScore = getRankScore(rankedStudents[startIndex], scoreKey);
+  while (
+    startIndex > 0 &&
+    getRankScore(rankedStudents[startIndex - 1], scoreKey) === topBoundaryScore
+  ) {
+    startIndex -= 1;
+  }
+
+  const bottomBoundaryScore = getRankScore(rankedStudents[endIndex], scoreKey);
+  while (
+    endIndex + 1 < rankedStudents.length &&
+    getRankScore(rankedStudents[endIndex + 1], scoreKey) === bottomBoundaryScore
+  ) {
+    endIndex += 1;
+  }
+
+  return rankedStudents.slice(startIndex, endIndex + 1);
 };
+

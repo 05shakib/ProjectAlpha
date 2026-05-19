@@ -6,9 +6,9 @@ import {
   fetchExistingTableNames,
   getSubjectCodesForAcademicSemester,
   getGradePoint,
-  calculateStandardRankings, // <--- Add this
-  getTopStudentsWithTies,    // <--- Add this
-  getNearbyStudentsWithTies  // <--- Add this
+  calculateStandardCompetitionRanks,
+  getTopStudentsWithTieExpansion,
+  getStudentsAroundRankWithTieExpansion
 } from '../lib/dataUtils';
 
 // Log component render for debugging blank screen issues
@@ -430,7 +430,7 @@ export default function ResultAnalysis() {
       
       // MODIFICATION: Determine batch based on the EARLIEST regular exam year.
       const firstRegularRecord = student.records
-        .filter(r => r.type === 'R' && r.academic_year === 1 && r.academic_semester === 1)
+        .filter(r => r.type === 'R' && r.academicYear === 1 && r.academicSemester === 1)
         .sort((a, b) => a.examYear - b.examYear)[0];
 
       if (!firstRegularRecord) {
@@ -727,48 +727,36 @@ export default function ResultAnalysis() {
         });
     });
 
-    try {
-      // 1. Process the entire cohort through the Standard Competition math engine
-      const rankedCohort = calculateStandardRankings(completeStudentsForRanking, 'overallCgpa');
-      const totalCompleteStudents = rankedCohort.length;
+    const rankedCompleteStudents = calculateStandardCompetitionRanks(completeStudentsForRanking, 'overallCgpa');
 
-      // 2. Find the current student's overall rank
-      const currentStudentRankData = rankedCohort.find(s => String(s.id) === String(studentId));
-      if (currentStudentRankData) {
-        setOverallStudentRank(`${currentStudentRankData.rank} of ${totalCompleteStudents}`);
-      } else {
-        setOverallStudentRank('N/A (Incomplete Data)');
-      }
+    const totalCompleteStudents = rankedCompleteStudents.length;
+    const currentStudentRankData = rankedCompleteStudents.find(s => s.id === studentId);
 
-      // 3. Batch Average CGPA calculation
-      const totalCgpaSum = rankedCohort.reduce((sum, s) => sum + (s.overallCgpa || 0), 0);
-      const averageCgpa = totalCompleteStudents > 0 ? (totalCgpaSum / totalCompleteStudents).toFixed(2) : 'N/A';
-      setBatchAverageCgpa(averageCgpa);
-
-      // 4. Extract Top Students
-      const rawTopStudents = getTopStudentsWithTies(rankedCohort, 5) || [];
-      setTopStudents(rawTopStudents.map(s => ({
-        id: s.id,
-        studentId: s.studentId || s.id,
-        name: s.name || 'Unknown',
-        cgpa: s.overallCgpa,
-        rank: s.rank
-      })));
-
-      // 5. Extract Nearby Students
-      const rawNearbyStudents = getNearbyStudentsWithTies(rankedCohort, studentId, 5) || [];
-      setNearbyStudents(rawNearbyStudents.map(s => ({
-        id: s.id,
-        studentId: s.studentId || s.id,
-        name: s.name || 'Unknown',
-        cgpa: s.overallCgpa,
-        rank: s.rank
-      })));
-
-    } catch (error) {
-      console.error("Ranking Engine Error:", error);
-      setOverallStudentRank("Error calculating rank");
+    if (currentStudentRankData) {
+      setOverallStudentRank(`${currentStudentRankData.rank} of ${totalCompleteStudents}`);
+    } else {
+      setOverallStudentRank('N/A (Incomplete)');
     }
+
+    const totalCgpaSum = rankedCompleteStudents.reduce((sum, s) => sum + s.overallCgpa, 0);
+    const averageCgpa = totalCompleteStudents > 0 ? (totalCgpaSum / totalCompleteStudents).toFixed(2) : 'N/A';
+    setBatchAverageCgpa(averageCgpa);
+
+    const topStudentsWithTies = getTopStudentsWithTieExpansion(rankedCompleteStudents, 5, 'overallCgpa');
+    setTopStudents(topStudentsWithTies.map(s => ({
+      id: s.id,
+      name: s.name,
+      cgpa: s.overallCgpa,
+      rank: s.rank
+    })));
+
+    const nearbyStudentsWithTies = getStudentsAroundRankWithTieExpansion(rankedCompleteStudents, studentId, 5, 5, 'overallCgpa');
+    setNearbyStudents(nearbyStudentsWithTies.map(s => ({
+      studentId: s.id,
+      name: s.name,
+      cgpa: s.overallCgpa,
+      rank: s.rank
+    })));
 
     const numTopBottomStudents = 5;
     const avgGpaHistory = [];
@@ -839,7 +827,7 @@ export default function ResultAnalysis() {
   // NEW useEffect: Load all batch data once on component mount
   useEffect(() => {
     const loadAllBatchData = async () => {
-      if (supabase && typeof supabase.from !== 'function' && !allProcessedBatchData) {
+      if (supabase && typeof supabase.from === 'function' && !allProcessedBatchData) {
         console.log("Initial load of all batch data for ranking and averages...");
         setLoading(true); // Indicate loading for initial batch data
         try {
@@ -962,6 +950,8 @@ export default function ResultAnalysis() {
         <h2 className="text-2xl font-semibold mb-4">Search Student Results</h2>
         <div className="flex items-center space-x-4">
           <input
+            id="student-id-search"
+            name="studentId"
             type="text"
             placeholder="Enter a 10-digit Student ID (e.g., 2112135101)"
             className="p-3 border border-gray-600 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex-grow"
@@ -1146,6 +1136,8 @@ export default function ResultAnalysis() {
                                           <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(2)})</span>
                                         ) : course.hasImprovementOpportunity ? (
                                           <input
+                                            id={`expected-grade-${semesterKey}-${course.courseCode}`}
+                                            name={`expectedGrade-${semesterKey}-${course.courseCode}`}
                                             type="text"
                                             className="p-1 w-24 border border-gray-600 rounded-md bg-gray-800 text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
                                             value={expectedGrades[`${semesterKey}-${course.courseCode}`] || ''}
