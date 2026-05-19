@@ -727,42 +727,48 @@ export default function ResultAnalysis() {
         });
     });
 
-    // 1. Process the entire cohort through the Standard Competition math engine
-    const rankedCohort = calculateStandardRankings(completeStudentsForRanking, 'overallCgpa');
-    const totalCompleteStudents = rankedCohort.length;
+    try {
+      // 1. Process the entire cohort through the Standard Competition math engine
+      const rankedCohort = calculateStandardRankings(completeStudentsForRanking, 'overallCgpa');
+      const totalCompleteStudents = rankedCohort.length;
 
-    // 2. Find the current student's overall rank
-    const currentStudentRankData = rankedCohort.find(s => String(s.id) === String(studentId));
-    if (currentStudentRankData) {
-      setOverallStudentRank(`${currentStudentRankData.rank} of ${totalCompleteStudents}`);
-    } else {
-      setOverallStudentRank('N/A (Incomplete)');
+      // 2. Find the current student's overall rank
+      const currentStudentRankData = rankedCohort.find(s => String(s.id) === String(studentId));
+      if (currentStudentRankData) {
+        setOverallStudentRank(`${currentStudentRankData.rank} of ${totalCompleteStudents}`);
+      } else {
+        setOverallStudentRank('N/A (Incomplete Data)');
+      }
+
+      // 3. Batch Average CGPA calculation
+      const totalCgpaSum = rankedCohort.reduce((sum, s) => sum + (s.overallCgpa || 0), 0);
+      const averageCgpa = totalCompleteStudents > 0 ? (totalCgpaSum / totalCompleteStudents).toFixed(2) : 'N/A';
+      setBatchAverageCgpa(averageCgpa);
+
+      // 4. Extract Top Students
+      const rawTopStudents = getTopStudentsWithTies(rankedCohort, 5) || [];
+      setTopStudents(rawTopStudents.map(s => ({
+        id: s.id,
+        studentId: s.studentId || s.id,
+        name: s.name || 'Unknown',
+        cgpa: s.overallCgpa,
+        rank: s.rank
+      })));
+
+      // 5. Extract Nearby Students
+      const rawNearbyStudents = getNearbyStudentsWithTies(rankedCohort, studentId, 5) || [];
+      setNearbyStudents(rawNearbyStudents.map(s => ({
+        id: s.id,
+        studentId: s.studentId || s.id,
+        name: s.name || 'Unknown',
+        cgpa: s.overallCgpa,
+        rank: s.rank
+      })));
+
+    } catch (error) {
+      console.error("Ranking Engine Error:", error);
+      setOverallStudentRank("Error calculating rank");
     }
-
-    // 3. Batch Average CGPA calculation
-    const totalCgpaSum = rankedCohort.reduce((sum, s) => sum + s.overallCgpa, 0);
-    const averageCgpa = totalCompleteStudents > 0 ? (totalCgpaSum / totalCompleteStudents).toFixed(2) : 'N/A';
-    setBatchAverageCgpa(averageCgpa);
-
-    // 4. Extract Top Students (Expands for ties at the #5 spot)
-    const rawTopStudents = getTopStudentsWithTies(rankedCohort, 5);
-    setTopStudents(rawTopStudents.map(s => ({
-      id: s.id,
-      studentId: s.studentId || s.id,
-      name: s.name,
-      cgpa: s.overallCgpa,
-      rank: s.rank
-    })));
-
-    // 5. Extract Nearby Students (Expands for ties in the +-5 range)
-    const rawNearbyStudents = getNearbyStudentsWithTies(rankedCohort, studentId, 5);
-    setNearbyStudents(rawNearbyStudents.map(s => ({
-      id: s.id,
-      studentId: s.studentId || s.id,
-      name: s.name,
-      cgpa: s.overallCgpa,
-      rank: s.rank
-    })));
 
     const numTopBottomStudents = 5;
     const avgGpaHistory = [];
