@@ -6,6 +6,8 @@ import {
   fetchExistingTableNames,
   getSubjectCodesForAcademicSemester,
   getGradePoint,
+  roundCgpa,
+  formatCgpa,
   calculateStandardCompetitionRanks,
   getTopStudentsWithTieExpansion,
   getStudentsAroundRankWithTieExpansion
@@ -57,7 +59,7 @@ export default function ResultAnalysis() {
       overallTotalPoints += sem.totalPoints;
       overallTotalCredits += sem.totalCredits;
     });
-    return overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+    return overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
   }, []);
 
   // Helper to calculate YGPA from processed year data
@@ -342,7 +344,7 @@ export default function ResultAnalysis() {
       id: studentId,
       name: studentNameFound,
       semesters: finalProcessedSemesters,
-      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00,
+      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00,
       gpaHistory: studentGpaHistory,
       cgpaHistory: studentCgpaHistory,
     };
@@ -552,7 +554,7 @@ export default function ResultAnalysis() {
 
         currentCgpaAccumulator.totalPoints += semesterTotalPoints;
         currentCgpaAccumulator.totalCredits += semesterTotalCredits;
-        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
         studentSemesterCgpas[semesterKey] = currentCgpa;
         processedSemestersForThisStudent[semesterKey].cgpa = currentCgpa;
 
@@ -565,7 +567,7 @@ export default function ResultAnalysis() {
         processedSemestersForThisStudent[semesterKey].ygpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
       }
 
-      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? parseFloat((currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits).toFixed(2)) : 0.00;
+      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
 
       const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
       const hasAllRequiredSemesters = Array.from(requiredKeysForThisBatch).every(key => studentSemesterKeys.has(key));
@@ -641,7 +643,7 @@ export default function ResultAnalysis() {
 
         overallTotalPoints += semesterAdjustedTotalPoints;
         overallTotalCredits += semesterAdjustedTotalCredits;
-        const newCurrentCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+        const newCurrentCgpa = overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
 
         if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
             currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
@@ -663,7 +665,7 @@ export default function ResultAnalysis() {
         };
     }
 
-    const newOverallCgpa = overallTotalCredits > 0 ? parseFloat((overallTotalPoints / overallTotalCredits).toFixed(2)) : 0.00;
+    const newOverallCgpa = overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
 
     return {
         ...baseStudentData,
@@ -739,7 +741,7 @@ export default function ResultAnalysis() {
     }
 
     const totalCgpaSum = rankedCompleteStudents.reduce((sum, s) => sum + s.overallCgpa, 0);
-    const averageCgpa = totalCompleteStudents > 0 ? (totalCgpaSum / totalCompleteStudents).toFixed(2) : 'N/A';
+    const averageCgpa = totalCompleteStudents > 0 ? formatCgpa(totalCgpaSum / totalCompleteStudents) : 'N/A';
     setBatchAverageCgpa(averageCgpa);
 
     const topStudentsWithTies = getTopStudentsWithTieExpansion(rankedCompleteStudents, 5, 'overallCgpa');
@@ -784,13 +786,13 @@ export default function ResultAnalysis() {
 
       const cgpasForSemester = semesterWiseCgpas[semesterKey] || [];
       const sortedCgpas = [...cgpasForSemester].sort((a, b) => b - a);
-      const avgCgpa = sortedCgpas.length > 0 ? (cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length).toFixed(2) : 0;
+      const avgCgpa = sortedCgpas.length > 0 ? roundCgpa(cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length) : 0;
       const topCgpas = sortedCgpas.slice(0, numTopBottomStudents);
       const bottomCgpas = sortedCgpas.slice(Math.max(0, sortedCgpas.length - numTopBottomStudents));
 
-      avgCgpaHistory.push(parseFloat(avgCgpa));
-      topAvgCgpaHistory.push(topCgpas.length > 0 ? parseFloat((topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length).toFixed(2)) : 0);
-      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? parseFloat((bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length).toFixed(2)) : 0);
+      avgCgpaHistory.push(avgCgpa);
+      topAvgCgpaHistory.push(topCgpas.length > 0 ? roundCgpa(topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length) : 0);
+      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? roundCgpa(bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length) : 0);
     });
 
     setGpaChartData({
@@ -986,7 +988,7 @@ export default function ResultAnalysis() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall CGPA:</p>
-              <p className="text-4xl font-bold text-green-400">{simulatedStudentData.overallCgpa}</p>
+              <p className="text-4xl font-bold text-green-400">{formatCgpa(simulatedStudentData.overallCgpa)}</p>
             </div>
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall Rank:</p>
@@ -1042,7 +1044,7 @@ export default function ResultAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1071,7 +1073,7 @@ export default function ResultAnalysis() {
                         <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1102,7 +1104,7 @@ export default function ResultAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{sem.semesterDisplayName}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.gpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.ygpa}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(sem.cgpa)}</td>
                       <td className="py-2 px-4 border-b border-gray-600">
                         {expandedSemester === semesterKey ? '▲ Hide' : '▼ Show'}
                       </td>
