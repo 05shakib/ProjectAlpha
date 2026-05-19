@@ -16,7 +16,7 @@ export const COURSE_CREDITS = 3;
 export const COURSES_PER_SEMESTER = 5;
 
 // CGPA precision: change this to 3 if you prefer three-decimal CGPA output.
-export const CGPA_DECIMALS = 4;
+export const CGPA_DECIMALS = 6;
 
 // Helper to keep CGPA calculation precise without forcing unnecessary trailing zeroes.
 export const roundCgpa = (value, decimals = CGPA_DECIMALS) => {
