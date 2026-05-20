@@ -6,8 +6,7 @@ import {
   fetchExistingTableNames,
   getSubjectCodesForAcademicSemester,
   getGradePoint,
-  roundCgpa,
-  formatCgpa,
+  roundToDecimalPlaces,
   calculateStandardCompetitionRanks,
   getTopStudentsWithTieExpansion,
   getStudentsAroundRankWithTieExpansion
@@ -59,7 +58,7 @@ export default function ResultAnalysis() {
       overallTotalPoints += sem.totalPoints;
       overallTotalCredits += sem.totalCredits;
     });
-    return overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
+    return overallTotalCredits > 0 ? roundToDecimalPlaces(overallTotalPoints / overallTotalCredits) : 0.00;
   }, []);
 
   // Helper to calculate YGPA from processed year data
@@ -194,7 +193,14 @@ export default function ResultAnalysis() {
     const processedRawStudentRecords = {};
     let foundAnyData = false;
 
-    results.forEach(record => {
+    const orderedResults = [...results].sort((a, b) => {
+      if (a.academicYear !== b.academicYear) return a.academicYear - b.academicYear;
+      if (a.academicSemester !== b.academicSemester) return a.academicSemester - b.academicSemester;
+      if (a.type !== b.type) return a.type === 'R' ? -1 : 1;
+      return a.examYear - b.examYear;
+    });
+
+    orderedResults.forEach(record => {
       foundAnyData = true;
       const { academicYear, academicSemester, examYear, type, data } = record;
       const semesterKey = `${academicYear}-${academicSemester}`;
@@ -300,13 +306,17 @@ export default function ResultAnalysis() {
         semesterTotalPoints += gradePoint * credit;
         semesterTotalCredits += credit;
 
+        const improvementApplied = !!(originalGradesMap[code] && gradesMap[code] !== originalGradesMap[code]);
+
         courseDetails.push({
           courseCode: code,
           gradeLetter,
           gradePoint,
           originalGradeLetter: originalGradeLetter,
+          improvedGradeLetter: improvementApplied ? gradeLetter : null,
+          improvedGradePoint: improvementApplied ? gradePoint : null,
           hasImprovementOpportunity: getGradePoint(originalGradeLetter) < getGradePoint('B-') || originalGradeLetter === 'F',
-          improvementApplied: !!(originalGradesMap[code] && gradesMap[code] !== originalGradesMap[code])
+          improvementApplied
         });
       });
 
@@ -344,7 +354,7 @@ export default function ResultAnalysis() {
       id: studentId,
       name: studentNameFound,
       semesters: finalProcessedSemesters,
-      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00,
+      overallCgpa: currentCgpaAccumulator.totalCredits > 0 ? roundToDecimalPlaces(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00,
       gpaHistory: studentGpaHistory,
       cgpaHistory: studentCgpaHistory,
     };
@@ -470,7 +480,9 @@ export default function ResultAnalysis() {
 
       const sortedRecords = student.records.sort((a, b) => {
         if (a.academicYear !== b.academicYear) return a.academicYear - b.academicYear;
-        return a.academicSemester - b.academicSemester;
+        if (a.academicSemester !== b.academicSemester) return a.academicSemester - b.academicSemester;
+        if (a.type !== b.type) return a.type === 'R' ? -1 : 1;
+        return a.examYear - b.examYear;
       });
 
       sortedRecords.forEach(record => {
@@ -554,7 +566,7 @@ export default function ResultAnalysis() {
 
         currentCgpaAccumulator.totalPoints += semesterTotalPoints;
         currentCgpaAccumulator.totalCredits += semesterTotalCredits;
-        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
+        const currentCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundToDecimalPlaces(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
         studentSemesterCgpas[semesterKey] = currentCgpa;
         processedSemestersForThisStudent[semesterKey].cgpa = currentCgpa;
 
@@ -567,7 +579,7 @@ export default function ResultAnalysis() {
         processedSemestersForThisStudent[semesterKey].ygpa = currentYearAccumulator.totalCredits > 0 ? parseFloat((currentYearAccumulator.totalPoints / currentYearAccumulator.totalCredits).toFixed(2)) : 0.00;
       }
 
-      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundCgpa(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
+      const studentOverallCgpa = currentCgpaAccumulator.totalCredits > 0 ? roundToDecimalPlaces(currentCgpaAccumulator.totalPoints / currentCgpaAccumulator.totalCredits) : 0.00;
 
       const studentSemesterKeys = new Set(Object.keys(processedSemestersForThisStudent));
       const hasAllRequiredSemesters = Array.from(requiredKeysForThisBatch).every(key => studentSemesterKeys.has(key));
@@ -621,8 +633,10 @@ export default function ResultAnalysis() {
             const expectedGradeKey = `${semesterKey}-${course.courseCode}`;
             const expectedGradeLetter = currentExpectedGrades[expectedGradeKey];
 
-            let gradeToUse = course.originalGradeLetter;
-            let gradePointToUse = getGradePoint(course.originalGradeLetter);
+            // Start from the actual/current gradeLetter, because it may already include
+            // a real improvement result. originalGradeLetter must remain only for display.
+            let gradeToUse = course.gradeLetter || course.originalGradeLetter;
+            let gradePointToUse = getGradePoint(gradeToUse);
 
             if (expectedGradeLetter && getGradePoint(expectedGradeLetter) !== 0.00 && getGradePoint(expectedGradeLetter) > getGradePoint(gradeToUse)) {
                 gradeToUse = expectedGradeLetter;
@@ -643,7 +657,7 @@ export default function ResultAnalysis() {
 
         overallTotalPoints += semesterAdjustedTotalPoints;
         overallTotalCredits += semesterAdjustedTotalCredits;
-        const newCurrentCgpa = overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
+        const newCurrentCgpa = overallTotalCredits > 0 ? roundToDecimalPlaces(overallTotalPoints / overallTotalCredits) : 0.00;
 
         if (lastProcessedYear === null || lastProcessedYear !== academicYear) {
             currentYearAccumulator = { totalPoints: 0, totalCredits: 0 };
@@ -665,7 +679,7 @@ export default function ResultAnalysis() {
         };
     }
 
-    const newOverallCgpa = overallTotalCredits > 0 ? roundCgpa(overallTotalPoints / overallTotalCredits) : 0.00;
+    const newOverallCgpa = overallTotalCredits > 0 ? roundToDecimalPlaces(overallTotalPoints / overallTotalCredits) : 0.00;
 
     return {
         ...baseStudentData,
@@ -741,7 +755,7 @@ export default function ResultAnalysis() {
     }
 
     const totalCgpaSum = rankedCompleteStudents.reduce((sum, s) => sum + s.overallCgpa, 0);
-    const averageCgpa = totalCompleteStudents > 0 ? formatCgpa(totalCgpaSum / totalCompleteStudents) : 'N/A';
+    const averageCgpa = totalCompleteStudents > 0 ? roundToDecimalPlaces(totalCgpaSum / totalCompleteStudents) : 'N/A';
     setBatchAverageCgpa(averageCgpa);
 
     const topStudentsWithTies = getTopStudentsWithTieExpansion(rankedCompleteStudents, 5, 'overallCgpa');
@@ -786,13 +800,13 @@ export default function ResultAnalysis() {
 
       const cgpasForSemester = semesterWiseCgpas[semesterKey] || [];
       const sortedCgpas = [...cgpasForSemester].sort((a, b) => b - a);
-      const avgCgpa = sortedCgpas.length > 0 ? roundCgpa(cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length) : 0;
+      const avgCgpa = sortedCgpas.length > 0 ? roundToDecimalPlaces(cgpasForSemester.reduce((sum, c) => sum + c, 0) / cgpasForSemester.length) : 0;
       const topCgpas = sortedCgpas.slice(0, numTopBottomStudents);
       const bottomCgpas = sortedCgpas.slice(Math.max(0, sortedCgpas.length - numTopBottomStudents));
 
-      avgCgpaHistory.push(avgCgpa);
-      topAvgCgpaHistory.push(topCgpas.length > 0 ? roundCgpa(topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length) : 0);
-      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? roundCgpa(bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length) : 0);
+      avgCgpaHistory.push(parseFloat(avgCgpa));
+      topAvgCgpaHistory.push(topCgpas.length > 0 ? roundToDecimalPlaces(topCgpas.reduce((sum, c) => sum + c, 0) / topCgpas.length) : 0);
+      bottomAvgCgpaHistory.push(bottomCgpas.length > 0 ? roundToDecimalPlaces(bottomCgpas.reduce((sum, c) => sum + c, 0) / bottomCgpas.length) : 0);
     });
 
     setGpaChartData({
@@ -988,7 +1002,7 @@ export default function ResultAnalysis() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall CGPA:</p>
-              <p className="text-4xl font-bold text-green-400">{formatCgpa(simulatedStudentData.overallCgpa)}</p>
+              <p className="text-4xl font-bold text-green-400">{simulatedStudentData.overallCgpa}</p>
             </div>
             <div className="bg-gray-700 p-4 rounded-md text-center">
               <p className="text-lg font-medium">Overall Rank:</p>
@@ -1044,7 +1058,7 @@ export default function ResultAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.id}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1073,7 +1087,7 @@ export default function ResultAnalysis() {
                         <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.studentId}</td>
                         <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
+                        <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1104,7 +1118,7 @@ export default function ResultAnalysis() {
                       <td className="py-2 px-4 border-b border-gray-600">{sem.semesterDisplayName}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.gpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{sem.ygpa}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(sem.cgpa)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{sem.cgpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">
                         {expandedSemester === semesterKey ? '▲ Hide' : '▼ Show'}
                       </td>
@@ -1135,7 +1149,9 @@ export default function ResultAnalysis() {
                                       <td className="py-2 px-3 border-b border-gray-600">
                                         {/* MODIFICATION: New logic to show existing improvement or an input box */}
                                         {course.improvementApplied ? (
-                                          <span className="font-bold text-green-400">{course.gradeLetter} ({course.gradePoint.toFixed(2)})</span>
+                                          <span className="font-bold text-green-400">
+                                            {course.improvedGradeLetter || course.gradeLetter} ({(course.improvedGradePoint ?? course.gradePoint).toFixed(2)})
+                                          </span>
                                         ) : course.hasImprovementOpportunity ? (
                                           <input
                                             id={`expected-grade-${semesterKey}-${course.courseCode}`}

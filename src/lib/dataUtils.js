@@ -15,20 +15,13 @@ export const COURSE_CREDITS = 3;
 // 5 courses per semester, as per your specification
 export const COURSES_PER_SEMESTER = 5;
 
-// CGPA precision: change this to 3 if you prefer three-decimal CGPA output.
-export const CGPA_DECIMALS = 6;
+// Keep CGPA/ranking values more precise without unnecessary trailing zeroes
+export const CGPA_DECIMALS = 8;
 
-// Helper to keep CGPA calculation precise without forcing unnecessary trailing zeroes.
-export const roundCgpa = (value, decimals = CGPA_DECIMALS) => {
+export const roundToDecimalPlaces = (value, decimals = CGPA_DECIMALS) => {
   const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? parseFloat(numericValue.toFixed(decimals)) : 0.00;
-};
-
-// Helper for displaying CGPA up to the configured number of decimals.
-export const formatCgpa = (value, decimals = CGPA_DECIMALS) => {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return 'N/A';
-  return parseFloat(numericValue.toFixed(decimals)).toString();
+  if (!Number.isFinite(numericValue)) return 0;
+  return parseFloat(numericValue.toFixed(decimals));
 };
 
 // Helper function to get subject codes for a given academic year and semester

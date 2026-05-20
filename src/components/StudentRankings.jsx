@@ -1,5 +1,4 @@
 import React from 'react';
-import { formatCgpa } from '../lib/dataUtils';
 
 export default function StudentRankings({ topStudents, nearbyStudents, currentStudentId }) {
   const getTopStudentId = (student) => student.id ?? student.studentId;
@@ -26,7 +25,7 @@ export default function StudentRankings({ topStudents, nearbyStudents, currentSt
                   <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                   <td className="py-2 px-4 border-b border-gray-600">{getTopStudentId(student)}</td>
                   <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                  <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
+                  <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                   <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation ?? 'N/A'}</td>
                 </tr>
               ))}
@@ -59,7 +58,7 @@ export default function StudentRankings({ topStudents, nearbyStudents, currentSt
                       <td className="py-2 px-4 border-b border-gray-600">{student.rank}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{nearbyStudentId}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.name}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{formatCgpa(student.cgpa)}</td>
+                      <td className="py-2 px-4 border-b border-gray-600">{student.cgpa}</td>
                       <td className="py-2 px-4 border-b border-gray-600">{student.gpaStandardDeviation ?? 'N/A'}</td>
                     </tr>
                   );
